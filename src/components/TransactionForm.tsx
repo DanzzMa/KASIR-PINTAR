@@ -20,11 +20,15 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id || '');
   const [selectedCashAccountId, setSelectedCashAccountId] = useState(accounts.find(a => a.type === 'cash')?.id || accounts[0]?.id || '');
   const [bankType, setBankType] = useState<'same' | 'other'>('same');
+  const [adjustmentMode, setAdjustmentMode] = useState<'add' | 'subtract'>('subtract');
   const [amount, setAmount] = useState('');
   const [fee, setFee] = useState('');
   const [feeExternal, setFeeExternal] = useState('');
   const [feeMethod, setFeeMethod] = useState<'added' | 'deducted'>('added');
   const [note, setNote] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed'>('success');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -72,6 +76,9 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
           feeMethod,
           netAmount: digitalImpact,
           note: note,
+          customerName: customerName.trim() || undefined,
+          referenceNumber: referenceNumber.trim() || undefined,
+          paymentStatus: paymentStatus,
           timestamp: serverTimestamp(),
         });
 
@@ -106,6 +113,9 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
           feeMethod,
           netAmount: sourceImpact, 
           note: note,
+          customerName: customerName.trim() || undefined,
+          referenceNumber: referenceNumber.trim() || undefined,
+          paymentStatus: paymentStatus,
           timestamp: serverTimestamp(),
         });
 
@@ -129,11 +139,36 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
           feeExternal: 0,
           netAmount: -amt,
           note: note,
+          customerName: customerName.trim() || undefined,
+          referenceNumber: referenceNumber.trim() || undefined,
+          paymentStatus: paymentStatus,
           timestamp: serverTimestamp(),
         });
 
         batch.update(doc(db, 'users', user.uid, 'accounts', selectedAccountId), {
           balance: increment(-amt)
+        });
+      } else if (type === 'adjustment') {
+        const transactionRef = doc(collection(db, 'transactions'));
+        const impact = adjustmentMode === 'add' ? amt : -amt;
+        
+        batch.set(transactionRef, {
+          userId: user.uid,
+          accountId: selectedAccountId,
+          type,
+          amount: amt,
+          fee: 0,
+          feeExternal: 0,
+          netAmount: impact,
+          note: note || (adjustmentMode === 'add' ? 'Penyesuaian (+) ' : 'Penyesuaian (-) '),
+          customerName: customerName.trim() || undefined,
+          referenceNumber: referenceNumber.trim() || undefined,
+          paymentStatus: paymentStatus,
+          timestamp: serverTimestamp(),
+        });
+
+        batch.update(doc(db, 'users', user.uid, 'accounts', selectedAccountId), {
+          balance: increment(impact)
         });
       } else {
         // Normal Transaction
@@ -175,6 +210,9 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
           feeMethod,
           netAmount: netImpact,
           note: note,
+          customerName: customerName.trim() || undefined,
+          referenceNumber: referenceNumber.trim() || undefined,
+          paymentStatus: paymentStatus,
           timestamp: serverTimestamp(),
         });
 
@@ -209,6 +247,7 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
     { id: 'topup_game', label: 'Topup Game', icon: Gamepad2, color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-200' },
     { id: 'transfer_bank', label: 'Kirim Uang', icon: ArrowRightCircle, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200' },
     { id: 'expense', label: 'Pengeluaran', icon: TrendingDown, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+    { id: 'adjustment', label: 'Penyesuaian', icon: Info, color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-200' },
     { id: 'transfer', label: 'Pindah Saldo', icon: Repeat, color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-200' },
   ];
 
@@ -261,10 +300,10 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
-                {type === 'transfer' ? 'Pindah Dari (Asal)' : type === 'expense' ? 'Rekening Sumber' : 'Gunakan Rekening Digital'}
+                {type === 'transfer' ? 'Pindah Dari (Asal)' : type === 'expense' || type === 'adjustment' ? 'Rekening Sumber' : 'Gunakan Rekening Digital'}
               </label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {(type === 'expense' ? accounts : digitalAccounts).map(acc => (
+                {(type === 'expense' || type === 'adjustment' ? accounts : digitalAccounts).map(acc => (
                   <button
                     key={acc.id}
                     type="button"
@@ -284,7 +323,7 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
               </div>
             </div>
 
-            {type !== 'transfer' && type !== 'transfer_bank' && type !== 'expense' && (
+            {type !== 'transfer' && type !== 'transfer_bank' && type !== 'expense' && type !== 'adjustment' && (
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Pilih Rekening Tunai (Laci/Cash)</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -399,6 +438,40 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
             )}
           </div>
 
+          {type === 'adjustment' && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 bg-slate-50 rounded-2xl border border-slate-200"
+            >
+              <label className="block text-sm font-semibold text-slate-700 mb-3 text-center">Tindakan Penyesuaian</label>
+              <div className="flex p-1 bg-slate-200 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setAdjustmentMode('add')}
+                  className={clsx(
+                    "flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2",
+                    adjustmentMode === 'add' ? "bg-white text-green-600 shadow-sm" : "text-slate-500"
+                  )}
+                >
+                  <ArrowDownCircle size={18} />
+                  Tambah (+)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustmentMode('subtract')}
+                  className={clsx(
+                    "flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2",
+                    adjustmentMode === 'subtract' ? "bg-white text-red-600 shadow-sm" : "text-slate-500"
+                  )}
+                >
+                  <ArrowUpCircle size={18} />
+                  Kurangi (-)
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Jumlah Nominal</label>
@@ -415,7 +488,7 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
               </div>
             </div>
 
-            <div className={clsx("grid grid-cols-1 gap-4", type === 'expense' && "opacity-20 pointer-events-none")}>
+            <div className={clsx("grid grid-cols-1 gap-4", (type === 'expense' || type === 'adjustment') && "opacity-20 pointer-events-none")}>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2 leading-none">Metode Admin</label>
                 <div className="flex p-1 bg-slate-100 rounded-2xl">
@@ -472,6 +545,52 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Pelanggan</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
+                placeholder="Contoh: Budi Santoso"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">No. Referensi / ID</label>
+              <input
+                type="text"
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
+                placeholder="Nomor STR atau ID Pelanggan"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-3">Status Pembayaran</label>
+            <div className="flex p-1 bg-slate-100 rounded-2xl">
+              {(['success', 'pending', 'failed'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setPaymentStatus(s)}
+                  className={clsx(
+                    "flex-1 py-3 text-sm font-bold rounded-xl transition-all capitalize",
+                    paymentStatus === s 
+                      ? s === 'success' ? "bg-white text-green-600 shadow-sm" : 
+                        s === 'pending' ? "bg-white text-orange-600 shadow-sm" : 
+                        "bg-white text-red-600 shadow-sm"
+                      : "text-slate-500"
+                  )}
+                >
+                  {s === 'success' ? 'Berhasil' : s === 'pending' ? 'Pending' : 'Gagal'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">Catatan / Keterangan</label>
             <textarea
@@ -502,8 +621,8 @@ export default function TransactionForm({ user, profile, accounts, onComplete }:
                 ? (feeMethod === 'added'
                     ? `PINDAH SALDO: Rekening Asal berkurang Rp${(parseFloat(amount)||0) + (parseFloat(fee)||0) + (parseFloat(feeExternal)||0)} (Nominal + Biaya Bank). Rekening Tujuan terima Rp${amount}.`
                     : `PINDAH SALDO: Rekening Asal berkurang Rp${amount}. Rekening Tujuan terima Rp${(parseFloat(amount)||0) - (parseFloat(fee)||0) - (parseFloat(feeExternal)||0)} (Terpotong Biaya).`)
-                : type === 'expense'
-                ? `PENGELUARAN: Saldo ${accounts.find(a => a.id === selectedAccountId)?.name} berkurang Rp${amount}.`
+                : type === 'adjustment'
+                ? `PENYESUAIAN: Saldo ${accounts.find(a => a.id === selectedAccountId)?.name} ${adjustmentMode === 'add' ? 'bertambah' : 'berkurang'} Rp${amount}.`
                 : (feeMethod === 'added'
                     ? `SETOR/TOPUP: Pelanggan Bayar Rp${(parseFloat(amount)||0) + (parseFloat(fee)||0)} cash. Anda Kirim Rp${amount} digital. Digital Anda (-) Rp${(parseFloat(amount)||0) + (parseFloat(feeExternal)||0)}.`
                     : `SETOR/TOPUP: Pelanggan Bayar Rp${amount} cash. Anda Kirim Rp${(parseFloat(amount)||0) - (parseFloat(fee)||0)} digital. Digital Anda (-) Rp${(parseFloat(amount)||0) - (parseFloat(fee)||0) + (parseFloat(feeExternal)||0)}.`)}

@@ -1,9 +1,9 @@
 import { useState, FormEvent } from 'react';
 import { db } from '../lib/firebase';
-import { doc, setDoc, collection, addDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc, deleteDoc, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { UserProfile, Account, AccountType } from '../types';
-import { Save, Wallet, AlertCircle, Plus, Trash2, CreditCard, Landmark, Smartphone } from 'lucide-react';
+import { Save, Wallet, AlertCircle, Plus, Trash2, CreditCard, Landmark, Smartphone, Edit2, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 
@@ -21,6 +21,9 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
   const [newAccBalance, setNewAccBalance] = useState('0');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [editingAcc, setEditingAcc] = useState<Account | null>(null);
+  const [deletingAcc, setDeletingAcc] = useState<Account | null>(null);
+  const [editedBalance, setEditedBalance] = useState('');
 
   const handleSaveProfile = async (e: FormEvent) => {
     e.preventDefault();
@@ -77,12 +80,61 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
     }
   };
 
-  const handleDeleteAccount = async (accId: string) => {
-    if (!confirm('Hapus rekening ini? Ini tidak menghapus riwayat transaksi.')) return;
+  const handleDeleteAccount = async () => {
+    if (!deletingAcc) return;
+    setLoading(true);
     try {
-      await deleteDoc(doc(db, 'users', user.uid, 'accounts', accId));
+      await deleteDoc(doc(db, 'users', user.uid, 'accounts', deletingAcc.id));
+      setDeletingAcc(null);
     } catch (err) {
       console.error(err);
+      alert('Gagal menghapus rekening.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditBalance = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingAcc) return;
+
+    const newBal = parseFloat(editedBalance);
+    if (isNaN(newBal)) return;
+
+    const diff = newBal - editingAcc.balance;
+    if (diff === 0) {
+      setEditingAcc(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      const transactionRef = doc(collection(db, 'transactions'));
+
+      batch.set(transactionRef, {
+        userId: user.uid,
+        accountId: editingAcc.id,
+        type: 'adjustment',
+        amount: Math.abs(diff),
+        fee: 0,
+        feeExternal: 0,
+        netAmount: diff,
+        note: `Edit Saldo (Koreksi dari Rp${editingAcc.balance.toLocaleString('id-ID')} ke Rp${newBal.toLocaleString('id-ID')})`,
+        timestamp: serverTimestamp(),
+      });
+
+      batch.update(doc(db, 'users', user.uid, 'accounts', editingAcc.id), {
+        balance: increment(diff)
+      });
+
+      await batch.commit();
+      setEditingAcc(null);
+    } catch (err) {
+      console.error(err);
+      alert('Gagal memperbarui saldo.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -176,17 +228,27 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
                       </div>
                       <div className="text-right flex items-center gap-4">
                         <div>
-                          <p className="font-bold text-slate-900">Rp{acc.balance.toLocaleString('id-ID')}</p>
+                          <div className="flex items-center gap-2 justify-end">
+                            <p className="font-bold text-slate-900">Rp{acc.balance.toLocaleString('id-ID')}</p>
+                            <button
+                              onClick={() => {
+                                setEditingAcc(acc);
+                                setEditedBalance(acc.balance.toString());
+                              }}
+                              className="p-1 text-blue-400 hover:text-blue-600 transition-colors"
+                              title="Edit Saldo"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          </div>
                           <p className="text-[10px] text-slate-400">Modal: Rp{acc.initialBalance.toLocaleString('id-ID')}</p>
                         </div>
-                        {!isInitialSetup && (
-                          <button 
-                            onClick={() => handleDeleteAccount(acc.id)}
-                            className="p-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
+                        <button 
+                          onClick={() => setDeletingAcc(acc)}
+                          className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
                       </div>
                     </motion.div>
                   ))}
@@ -276,6 +338,113 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
           )}
         </motion.div>
       </div>
+
+      {/* Edit Balance Modal */}
+      <AnimatePresence>
+        {editingAcc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-slate-800">Edit Saldo</h3>
+                <button 
+                  onClick={() => setEditingAcc(null)}
+                  className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleEditBalance} className="p-8 space-y-6">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500 mb-2">Rekening</label>
+                  <p className="text-lg font-bold text-slate-800">{editingAcc.name}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Atur Saldo Baru</label>
+                  <div className="relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-400">Rp</span>
+                    <input
+                      type="number"
+                      autoFocus
+                      value={editedBalance}
+                      onChange={(e) => setEditedBalance(e.target.value)}
+                      className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-2xl text-blue-600"
+                      required
+                    />
+                  </div>
+                  <p className="mt-3 text-xs text-slate-400 font-medium leading-relaxed">
+                    Perubahan akan dicatat sebagai transaksi <span className="font-bold">Penyesuaian</span> secara otomatis.
+                  </p>
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAcc(null)}
+                    className="flex-1 px-6 py-4 rounded-2xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl transition-all shadow-lg shadow-blue-100 font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Check size={20} />
+                    Simpan
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deletingAcc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Rekening?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Apakah Anda yakin ingin menghapus <span className="font-bold text-slate-800">{deletingAcc.name}</span>? 
+                  Tindakan ini tidak dapat dibatalkan, namun riwayat transaksi tetap tersimpan.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletingAcc(null)}
+                    disabled={loading}
+                    className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={loading}
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl transition-all font-bold disabled:opacity-50"
+                  >
+                    {loading ? 'Menghapus...' : 'Ya, Hapus'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

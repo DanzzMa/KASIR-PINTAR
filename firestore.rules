@@ -44,7 +44,7 @@ service cloud.firestore {
       return data.userId is string &&
              data.userId == request.auth.uid &&
              data.accountId is string &&
-             data.type in ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer', 'transfer_bank', 'expense'] &&
+             data.type in ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer', 'transfer_bank', 'expense', 'adjustment'] &&
              data.amount is number &&
              data.fee is number &&
              (!('feeExternal' in data) || data.feeExternal is number) &&
@@ -53,6 +53,9 @@ service cloud.firestore {
              (!('cashAccountId' in data) || data.cashAccountId is string) &&
              (!('bankType' in data) || data.bankType in ['same', 'other']) &&
              (!('note' in data) || data.note is string) &&
+             (!('customerName' in data) || data.customerName is string) &&
+             (!('referenceNumber' in data) || data.referenceNumber is string) &&
+             (!('paymentStatus' in data) || data.paymentStatus in ['pending', 'success', 'failed']) &&
              data.timestamp is timestamp &&
              data.keys().hasAll(['userId', 'accountId', 'type', 'amount', 'fee', 'netAmount', 'timestamp']) &&
              data.keys().size() >= 7;
@@ -83,7 +86,7 @@ service cloud.firestore {
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn() && isValidTransaction(incoming());
-      allow delete: if false;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow update: if false;
     }
   }

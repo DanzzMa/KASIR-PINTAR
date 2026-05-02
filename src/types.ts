@@ -1,4 +1,4 @@
-export type TransactionType = 'tarik_tunai' | 'setor_tunai' | 'topup' | 'ppob' | 'topup_game' | 'transfer' | 'transfer_bank' | 'expense';
+export type TransactionType = 'tarik_tunai' | 'setor_tunai' | 'topup' | 'ppob' | 'topup_game' | 'transfer' | 'transfer_bank' | 'expense' | 'adjustment';
 export type AccountType = 'cash' | 'bank' | 'ewallet' | 'other';
 
 export interface UserProfile {
@@ -30,5 +30,8 @@ export interface Transaction {
   feeMethod?: 'added' | 'deducted';
   netAmount: number;
   note: string;
+  customerName?: string;
+  referenceNumber?: string;
+  paymentStatus?: 'pending' | 'success' | 'failed';
   timestamp: any; // Firestore Timestamp
 }

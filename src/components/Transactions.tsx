@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc, writeBatch, increment } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { Transaction, Account } from '../types';
-import { Search, Filter, ArrowUpRight, ArrowDownLeft, Calendar, Wallet, Gamepad2, ArrowRightCircle, Repeat, TrendingDown } from 'lucide-react';
+import { Search, Filter, ArrowUpRight, ArrowDownLeft, Calendar, Wallet, Gamepad2, ArrowRightCircle, Repeat, TrendingDown, Info, Trash2, X, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
@@ -15,6 +15,8 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterAccount, setFilterAccount] = useState<string>('all');
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     const q = query(
@@ -35,8 +37,38 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
     return unsubscribe;
   }, [user.uid]);
 
+  const handleDeleteTransaction = async () => {
+    if (!deletingTx || isDeleting) return;
+    
+    setIsDeleting(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Delete the transaction document
+      batch.delete(doc(db, 'transactions', deletingTx.id));
+
+      // 2. Reverse the balance impact if the account still exists
+      const account = accounts.find(a => a.id === deletingTx.accountId);
+      if (account) {
+        batch.update(doc(db, 'users', user.uid, 'accounts', deletingTx.accountId), {
+          balance: increment(-deletingTx.netAmount)
+        });
+      }
+
+      await batch.commit();
+      setDeletingTx(null);
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
+      alert('Gagal menghapus transaksi.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const filteredTransactions = transactions.filter(tx => {
     const matchesSearch = tx.note?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          tx.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          tx.referenceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           tx.amount.toString().includes(searchTerm);
     const matchesType = filterType === 'all' || tx.type === filterType;
     const matchesAccount = filterAccount === 'all' || tx.accountId === filterAccount;
@@ -75,7 +107,7 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
         
         <div className="flex flex-col gap-4">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {['all', 'tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense'].map((t) => (
+            {['all', 'tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense', 'adjustment'].map((t) => (
               <button
                 key={t}
                 onClick={() => setFilterType(t)}
@@ -156,11 +188,13 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
                   tx.type === 'transfer_bank' ? "bg-indigo-50 text-indigo-600" :
                   tx.type === 'transfer' ? "bg-slate-50 text-slate-600" :
                   tx.type === 'expense' ? "bg-red-50 text-red-600" :
+                  tx.type === 'adjustment' ? "bg-slate-100 text-slate-700" :
                   tx.type === 'topup_game' ? "bg-pink-50 text-pink-600" : "bg-orange-50 text-orange-600"
                 )}>
                   {tx.type === 'tarik_tunai' ? <ArrowUpRight size={28} /> : 
                    tx.type === 'topup_game' ? <Gamepad2 size={28} /> : 
                    tx.type === 'expense' ? <TrendingDown size={28} /> :
+                   tx.type === 'adjustment' ? <Info size={28} /> :
                    tx.type === 'transfer_bank' ? <ArrowRightCircle size={28} /> :
                    tx.type === 'transfer' ? <Repeat size={28} /> :
                    <ArrowDownLeft size={28} />}
@@ -181,18 +215,38 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
                     <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-bold uppercase tracking-widest">
                       {accounts.find(a => a.id === tx.accountId)?.name || 'Account Deleted'}
                     </span>
+                    {tx.paymentStatus && (
+                      <span className={clsx(
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                        tx.paymentStatus === 'success' ? "bg-green-100 text-green-700" :
+                        tx.paymentStatus === 'pending' ? "bg-orange-100 text-orange-700" :
+                        "bg-red-100 text-red-700"
+                      )}>
+                        {tx.paymentStatus === 'success' ? 'Berhasil' : tx.paymentStatus}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 font-medium text-[11px]">
                     <span className="flex items-center gap-1">
                       <Calendar size={12} />
                       {tx.timestamp ? format(tx.timestamp.toDate(), 'd MMM yyyy, HH:mm', { locale: idLocale }) : '...'}
                     </span>
+                    {tx.customerName && (
+                      <span className="flex items-center gap-1 text-slate-600 font-bold">
+                        <span className="text-[9px] uppercase text-slate-400 font-bold">PLG:</span> {tx.customerName}
+                      </span>
+                    )}
+                    {tx.referenceNumber && (
+                      <span className="flex items-center gap-1 text-slate-600">
+                        <span className="text-[9px] uppercase text-slate-400 font-bold">REF:</span> {tx.referenceNumber}
+                      </span>
+                    )}
                     {tx.note && <span className="bg-slate-50 px-2 py-0.5 rounded-lg italic">"{tx.note}"</span>}
                   </div>
                 </div>
               </div>
 
-              <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-4 sm:pt-0 mt-4 sm:mt-0 border-slate-50">
+              <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-4 sm:pt-0 mt-4 sm:mt-0 border-slate-50 relative">
                  <p className={clsx(
                     "font-extrabold text-xl",
                     tx.netAmount > 0 ? "text-green-600" : "text-slate-800"
@@ -203,11 +257,63 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
                     <p className="text-[10px] uppercase font-bold text-slate-400">Laba Bersih:</p>
                     <p className="text-[11px] font-bold text-blue-600">{formatCurrency((tx.fee || 0) - (tx.feeExternal || 0))}</p>
                  </div>
+                 
+                 <button
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     setDeletingTx(tx);
+                   }}
+                   className="absolute -top-2 -right-2 sm:top-1/2 sm:-right-8 sm:-translate-y-1/2 p-2 text-slate-300 hover:text-red-500 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                   title="Hapus Transaksi"
+                 >
+                   <Trash2 size={16} />
+                 </button>
               </div>
             </motion.div>
           ))
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deletingTx && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <AlertTriangle size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Transaksi?</h3>
+                <p className="text-slate-500 text-sm mb-8">
+                  Konfirmasi penghapusan transaksi senilai <span className="font-bold text-slate-800">{formatCurrency(deletingTx.amount)}</span>. 
+                  Saldo rekening <span className="font-bold text-slate-800">{accounts.find(a => a.id === deletingTx.accountId)?.name}</span> akan disesuaikan kembali secara otomatis.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletingTx(null)}
+                    disabled={isDeleting}
+                    className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleDeleteTransaction}
+                    disabled={isDeleting}
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl transition-all font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

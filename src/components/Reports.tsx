@@ -72,7 +72,7 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
      }).format(val);
   };
 
-  const transactionTypes = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense'];
+  const transactionTypes = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense', 'adjustment'];
 
   return (
     <div className="space-y-8 pb-10">
