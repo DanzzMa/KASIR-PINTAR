@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account data and settings",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email"]
+    },
+    "Account": {
+      "title": "Account / Wallet",
+      "description": "Different balance sources like Cash, Bank, or E-Wallet",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string", "description": "e.g. Cash, DANA, BRI" },
+        "type": { "type": "string", "enum": ["cash", "bank", "ewallet", "other"] },
+        "balance": { "type": "number" },
+        "initialBalance": { "type": "number" }
+      },
+      "required": ["userId", "name", "balance"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Individual transaction records",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "accountId": { "type": "string", "description": "Reference to the selected account (source for transfers)" },
+        "toAccountId": { "type": "string", "description": "Target account for transfers" },
+        "cashAccountId": { "type": "string", "description": "Physical cash account used" },
+        "type": { "type": "string", "enum": ["tarik_tunai", "setor_tunai", "topup", "ppob", "topup_game", "transfer", "transfer_bank", "expense"] },
+        "bankType": { "type": "string", "enum": ["same", "other"] },
+        "amount": { "type": "number" },
+        "fee": { "type": "number" },
+        "feeExternal": { "type": "number" },
+        "netAmount": { "type": "number" },
+        "note": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "feeMethod": { "type": "string", "enum": ["added", "deducted"] }
+      },
+      "required": ["userId", "accountId", "type", "amount", "fee", "netAmount", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": "Account",
+      "description": "Multiple wallets/accounts for the user"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "List of all transactions"
+    }
+  }
+}

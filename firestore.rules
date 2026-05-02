@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation helpers
+    function isValidUser(data) {
+      return data.email is string &&
+             (!('displayName' in data) || data.displayName is string) &&
+             data.keys().hasAll(['email']) &&
+             data.keys().size() >= 1;
+    }
+
+    function isValidAccount(data) {
+      return data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 &&
+             data.balance is number &&
+             data.initialBalance is number &&
+             data.type in ['cash', 'bank', 'ewallet', 'other'] &&
+             data.keys().hasAll(['userId', 'name', 'balance', 'initialBalance', 'type']) &&
+             data.keys().size() == 5;
+    }
+
+    function isValidTransaction(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.accountId is string &&
+             data.type in ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer', 'transfer_bank', 'expense'] &&
+             data.amount is number &&
+             data.fee is number &&
+             (!('feeExternal' in data) || data.feeExternal is number) &&
+             data.netAmount is number &&
+             (!('toAccountId' in data) || data.toAccountId is string) &&
+             (!('cashAccountId' in data) || data.cashAccountId is string) &&
+             (!('bankType' in data) || data.bankType in ['same', 'other']) &&
+             (!('note' in data) || data.note is string) &&
+             data.timestamp is timestamp &&
+             data.keys().hasAll(['userId', 'accountId', 'type', 'amount', 'fee', 'netAmount', 'timestamp']) &&
+             data.keys().size() >= 7;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
+
+      // Accounts subcollection
+      match /accounts/{accountId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAccount(incoming());
+        allow update: if isOwner(userId) && isValidAccount(incoming());
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Transactions collection
+    match /transactions/{transactionId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidTransaction(incoming());
+      allow delete: if false;
+      allow update: if false;
+    }
+  }
+}

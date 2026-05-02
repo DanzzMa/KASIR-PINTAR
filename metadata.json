@@ -1,0 +1,6 @@
+{
+  "name": "KasPintar - Transaksi & PPOB",
+  "description": "Aplikasi pencatatan transaksi tarik tunai, setor tunai, topup, dan PPOB dengan fitur laporan otomatis dan manajemen saldo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
