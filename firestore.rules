@@ -66,28 +66,18 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Users collection
-    match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming());
-
-      // Accounts subcollection
-      match /accounts/{accountId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidAccount(incoming());
-        allow update: if isOwner(userId) && isValidAccount(incoming());
-        allow delete: if isOwner(userId);
-      }
+    // Accounts collection
+    match /accounts/{accountId} {
+      allow list, get: if isOwner(resource.data.userId);
+      allow create: if isOwner(incoming().userId);
+      allow update, delete: if isOwner(resource.data.userId);
     }
 
     // Transactions collection
     match /transactions/{transactionId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidTransaction(incoming());
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow update: if false;
+      allow list, get: if isOwner(resource.data.userId);
+      allow create: if isOwner(incoming().userId);
+      allow update, delete: if isOwner(resource.data.userId);
     }
   }
 }

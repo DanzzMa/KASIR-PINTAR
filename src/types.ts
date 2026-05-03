@@ -1,6 +1,12 @@
 export type TransactionType = 'tarik_tunai' | 'setor_tunai' | 'topup' | 'ppob' | 'topup_game' | 'transfer' | 'transfer_bank' | 'expense' | 'adjustment';
 export type AccountType = 'cash' | 'bank' | 'ewallet' | 'other';
 
+export interface User {
+  id: string;
+  email: string;
+  name?: string | null;
+}
+
 export interface UserProfile {
   email: string;
   displayName: string;
@@ -14,24 +20,25 @@ export interface Account {
   type: AccountType;
   balance: number;
   initialBalance: number;
+  icon?: string;
 }
 
 export interface Transaction {
   id: string;
   userId: string;
   accountId: string;
-  toAccountId?: string;
-  cashAccountId?: string;
   type: TransactionType;
-  bankType?: 'same' | 'other';
   amount: number;
   fee: number;
   feeExternal?: number;
   feeMethod?: 'added' | 'deducted';
   netAmount: number;
-  note: string;
+  note?: string;
   customerName?: string;
   referenceNumber?: string;
   paymentStatus?: 'pending' | 'success' | 'failed';
-  timestamp: any; // Firestore Timestamp
+  bankType?: 'same' | 'other';
+  linkedTransactionId?: string;
+  profit?: number;
+  timestamp: string; // ISO string
 }

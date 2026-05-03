@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc, writeBatch, increment } from 'firebase/firestore';
-import { User } from 'firebase/auth';
 import { Transaction, Account } from '../types';
-import { Search, Filter, ArrowUpRight, ArrowDownLeft, Calendar, Wallet, Gamepad2, ArrowRightCircle, Repeat, TrendingDown, Info, Trash2, X, AlertTriangle } from 'lucide-react';
+import { Search, ArrowUpRight, ArrowDownLeft, Gamepad2, ArrowRightCircle, Repeat, TrendingDown, Info, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
 import { clsx } from 'clsx';
+import { formatCurrency, safeParseDate } from '../lib/format';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, query, where, orderBy, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 
-export default function Transactions({ user, accounts }: { user: User, accounts: Account[] }) {
+export default function Transactions({ user, accounts, onUpdate }: { user: any, accounts: Account[], onUpdate?: () => void }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,6 +19,8 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
+
     const q = query(
       collection(db, 'transactions'),
       where('userId', '==', user.uid),
@@ -26,40 +28,43 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Transaction));
+      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
       setTransactions(txs);
+      setLoading(false);
+    }, (err) => {
+      console.error(err);
       setLoading(false);
     });
 
-    return unsubscribe;
-  }, [user.uid]);
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const handleDeleteTransaction = async () => {
     if (!deletingTx || isDeleting) return;
     
     setIsDeleting(true);
     try {
-      const batch = writeBatch(db);
-      
-      // 1. Delete the transaction document
-      batch.delete(doc(db, 'transactions', deletingTx.id));
+      await runTransaction(db, async (transaction) => {
+        const txRef = doc(db, 'transactions', deletingTx.id);
+        const accountRef = doc(db, 'accounts', deletingTx.accountId);
+        
+        const accountDoc = await transaction.get(accountRef);
+        if (!accountDoc.exists()) {
+          throw new Error('Account not found');
+        }
 
-      // 2. Reverse the balance impact if the account still exists
-      const account = accounts.find(a => a.id === deletingTx.accountId);
-      if (account) {
-        batch.update(doc(db, 'users', user.uid, 'accounts', deletingTx.accountId), {
-          balance: increment(-deletingTx.netAmount)
-        });
-      }
+        const currentBalance = accountDoc.data().balance;
+        // Revert the transaction effect on balance
+        const newBalance = currentBalance - deletingTx.netAmount;
+        
+        transaction.delete(txRef);
+        transaction.update(accountRef, { balance: newBalance });
+      });
 
-      await batch.commit();
       setDeletingTx(null);
+      if (onUpdate) onUpdate();
     } catch (err) {
-      console.error('Error deleting transaction:', err);
-      alert('Gagal menghapus transaksi.');
+      handleFirestoreError(err, OperationType.WRITE, `transactions/${deletingTx.id}`);
     } finally {
       setIsDeleting(false);
     }
@@ -75,201 +80,195 @@ export default function Transactions({ user, accounts }: { user: User, accounts:
     return matchesSearch && matchesType && matchesAccount;
   });
 
-  const formatCurrency = (val: number) => {
-     return new Intl.NumberFormat('id-ID', {
-       style: 'currency',
-       currency: 'IDR',
-       minimumFractionDigits: 0,
-     }).format(val);
-  };
+  // Group transactions by date
+  const groupedTransactions = filteredTransactions.reduce((groups, tx) => {
+    const date = tx.timestamp ? format(safeParseDate(tx.timestamp), 'yyyy-MM-dd') : 'unknown';
+    if (!groups[date]) {
+      groups[date] = [];
+    }
+    groups[date].push(tx);
+    return groups;
+  }, {} as Record<string, Transaction[]>);
+
+  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-800">Riwayat Transaksi</h2>
-          <p className="text-slate-500 font-medium">Lacak semua mutasi di berbagai rekening Anda.</p>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Riwayat</h2>
+          <p className="text-slate-500 text-xs font-medium">Monitoring arus kas harian Anda.</p>
+        </div>
+        <div className="relative flex-1 md:max-w-md">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Cari transaksi..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-sm shadow-sm"
+          />
         </div>
       </div>
 
-      {/* Filters Bar */}
-      <div className="space-y-4">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input
-            type="text"
-            placeholder="Cari nominal atau catatan..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-3xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium shadow-sm"
-          />
+      {/* Compact Filters */}
+      <div className="space-y-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {['all', 'tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense', 'adjustment'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setFilterType(t)}
+              className={clsx(
+                "px-4 py-2 rounded-xl font-bold text-[10px] whitespace-nowrap transition-all border",
+                filterType === t 
+                  ? "bg-blue-600 text-white border-blue-600 shadow-sm" 
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              )}
+            >
+              {t === 'all' ? 'SEMUA JENIS' : 
+               t === 'transfer_bank' ? 'KIRIM UANG' :
+               t.replace('_', ' ').toUpperCase()}
+            </button>
+          ))}
         </div>
-        
-        <div className="flex flex-col gap-4">
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {['all', 'tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense', 'adjustment'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setFilterType(t)}
-                className={clsx(
-                  "px-5 py-2.5 rounded-2xl font-bold text-xs whitespace-nowrap transition-all border-2",
-                  filterType === t 
-                    ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100" 
-                    : "bg-white text-slate-500 border-slate-100 hover:border-slate-200"
-                )}
-              >
-                {t === 'all' ? 'Semua Jenis' : 
-                 t === 'transfer_bank' ? 'Kirim Uang' :
-                 t === 'transfer' ? 'Pindah Saldo' :
-                 t.replace('_', ' ').charAt(0).toUpperCase() + t.replace('_', ' ').slice(1)}
-              </button>
-            ))}
-          </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+           <button
+              onClick={() => setFilterAccount('all')}
+              className={clsx(
+                "px-4 py-2 rounded-xl font-bold text-[10px] whitespace-nowrap transition-all border",
+                filterAccount === 'all' 
+                  ? "bg-slate-800 text-white border-slate-800 shadow-sm" 
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              )}
+           >
+             SEMUA REKENING
+           </button>
+           {accounts.map(acc => (
              <button
-                onClick={() => setFilterAccount('all')}
-                className={clsx(
-                  "px-5 py-2.5 rounded-2xl font-bold text-xs whitespace-nowrap transition-all border-2",
-                  filterAccount === 'all' 
-                    ? "bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-100" 
-                    : "bg-white text-slate-500 border-slate-100 hover:border-slate-200"
-                )}
+              key={acc.id}
+              onClick={() => setFilterAccount(acc.id)}
+              className={clsx(
+                "px-4 py-2 rounded-xl font-bold text-[10px] whitespace-nowrap transition-all border",
+                filterAccount === acc.id 
+                  ? "bg-slate-800 text-white border-slate-800 shadow-sm" 
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              )}
              >
-               Semua Rekening
+               {acc.name.toUpperCase()}
              </button>
-             {accounts.map(acc => (
-               <button
-                key={acc.id}
-                onClick={() => setFilterAccount(acc.id)}
-                className={clsx(
-                  "px-5 py-2.5 rounded-2xl font-bold text-xs whitespace-nowrap transition-all border-2",
-                  filterAccount === acc.id 
-                    ? "bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-100" 
-                    : "bg-white text-slate-500 border-slate-100 hover:border-slate-200"
-                )}
-               >
-                 {acc.name}
-               </button>
-             ))}
-          </div>
+           ))}
         </div>
       </div>
 
       {/* Transaction List */}
-      <div className="space-y-4">
+      <div className="space-y-6">
         {loading ? (
-          Array(5).fill(0).map((_, i) => (
-            <div key={i} className="h-24 bg-slate-100 rounded-3xl animate-pulse" />
+          Array(3).fill(0).map((_, i) => (
+            <div key={i} className="space-y-3">
+              <div className="h-4 w-24 bg-slate-100 rounded-lg animate-pulse" />
+              <div className="h-16 bg-slate-50 rounded-2xl animate-pulse" />
+            </div>
           ))
-        ) : filteredTransactions.length === 0 ? (
-          <div className="bg-white rounded-[2.5rem] p-16 text-center border border-slate-100 shadow-sm">
-             <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300 mb-6">
-                <Search size={40} />
-             </div>
-             <h3 className="text-xl font-bold text-slate-800 mb-2">Tidak ditemukan</h3>
-             <p className="text-slate-500">Silakan sesuaikan filter atau cari kata kunci lain.</p>
+        ) : sortedDates.length === 0 ? (
+          <div className="bg-white rounded-[2rem] p-12 text-center border border-dashed border-slate-200">
+             <Search size={32} className="mx-auto text-slate-300 mb-4" />
+             <p className="text-slate-500 font-medium text-sm">Tidak ada transaksi ditemukan.</p>
           </div>
         ) : (
-          filteredTransactions.map((tx) => (
-            <motion.div
-              layout
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              key={tx.id}
-              className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center gap-5">
-                <div className={clsx(
-                  "w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm",
-                  tx.type === 'tarik_tunai' ? "bg-green-50 text-green-600" :
-                  tx.type === 'setor_tunai' ? "bg-blue-50 text-blue-600" :
-                  tx.type === 'topup' ? "bg-purple-50 text-purple-600" : 
-                  tx.type === 'transfer_bank' ? "bg-indigo-50 text-indigo-600" :
-                  tx.type === 'transfer' ? "bg-slate-50 text-slate-600" :
-                  tx.type === 'expense' ? "bg-red-50 text-red-600" :
-                  tx.type === 'adjustment' ? "bg-slate-100 text-slate-700" :
-                  tx.type === 'topup_game' ? "bg-pink-50 text-pink-600" : "bg-orange-50 text-orange-600"
-                )}>
-                  {tx.type === 'tarik_tunai' ? <ArrowUpRight size={28} /> : 
-                   tx.type === 'topup_game' ? <Gamepad2 size={28} /> : 
-                   tx.type === 'expense' ? <TrendingDown size={28} /> :
-                   tx.type === 'adjustment' ? <Info size={28} /> :
-                   tx.type === 'transfer_bank' ? <ArrowRightCircle size={28} /> :
-                   tx.type === 'transfer' ? <Repeat size={28} /> :
-                   <ArrowDownLeft size={28} />}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h5 className="font-bold text-slate-800 text-lg capitalize">
-                      {tx.type === 'transfer_bank' ? 'Kirim Uang' : tx.type.replace('_', ' ')}
-                    </h5>
-                    {tx.bankType && (
-                      <span className={clsx(
-                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                        tx.bankType === 'same' ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
-                      )}>
-                        {tx.bankType === 'same' ? 'Sama Bank' : 'Beda Bank'}
-                      </span>
-                    )}
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-bold uppercase tracking-widest">
-                      {accounts.find(a => a.id === tx.accountId)?.name || 'Account Deleted'}
-                    </span>
-                    {tx.paymentStatus && (
-                      <span className={clsx(
-                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                        tx.paymentStatus === 'success' ? "bg-green-100 text-green-700" :
-                        tx.paymentStatus === 'pending' ? "bg-orange-100 text-orange-700" :
-                        "bg-red-100 text-red-700"
-                      )}>
-                        {tx.paymentStatus === 'success' ? 'Berhasil' : tx.paymentStatus}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 font-medium text-[11px]">
-                    <span className="flex items-center gap-1">
-                      <Calendar size={12} />
-                      {tx.timestamp ? format(tx.timestamp.toDate(), 'd MMM yyyy, HH:mm', { locale: idLocale }) : '...'}
-                    </span>
-                    {tx.customerName && (
-                      <span className="flex items-center gap-1 text-slate-600 font-bold">
-                        <span className="text-[9px] uppercase text-slate-400 font-bold">PLG:</span> {tx.customerName}
-                      </span>
-                    )}
-                    {tx.referenceNumber && (
-                      <span className="flex items-center gap-1 text-slate-600">
-                        <span className="text-[9px] uppercase text-slate-400 font-bold">REF:</span> {tx.referenceNumber}
-                      </span>
-                    )}
-                    {tx.note && <span className="bg-slate-50 px-2 py-0.5 rounded-lg italic">"{tx.note}"</span>}
-                  </div>
-                </div>
-              </div>
+          sortedDates.map((date) => (
+            <div key={date} className="space-y-2">
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest pl-4">
+                {date === format(new Date(), 'yyyy-MM-dd') ? 'HARI INI' : 
+                 date === format(new Date(Date.now() - 86400000), 'yyyy-MM-dd') ? 'KEMARIN' :
+                 format(safeParseDate(date), 'EEEE, d MMM yyyy', { locale: idLocale })}
+              </h3>
+              
+              <div className="bg-white rounded-[1.5rem] border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
+                {groupedTransactions[date].map((tx) => (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    key={tx.id}
+                    className="p-4 hover:bg-slate-50 transition-all group flex items-center gap-4"
+                  >
+                    <div className={clsx(
+                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                      tx.type === 'tarik_tunai' ? "bg-green-50 text-green-600" :
+                      tx.type === 'setor_tunai' ? "bg-blue-50 text-blue-600" :
+                      tx.type === 'topup' ? "bg-purple-50 text-purple-600" : 
+                      tx.type === 'transfer_bank' ? "bg-indigo-50 text-indigo-600" :
+                      tx.type === 'transfer' ? "bg-slate-50 text-slate-600" :
+                      tx.type === 'expense' ? "bg-red-50 text-red-600" :
+                      tx.type === 'adjustment' ? "bg-slate-100 text-slate-700" :
+                      tx.type === 'topup_game' ? "bg-pink-50 text-pink-600" : "bg-orange-50 text-orange-600"
+                    )}>
+                      {tx.type === 'tarik_tunai' ? <ArrowUpRight size={20} /> : 
+                       tx.type === 'topup_game' ? <Gamepad2 size={20} /> : 
+                       tx.type === 'expense' ? <TrendingDown size={20} /> :
+                       tx.type === 'adjustment' ? <Info size={20} /> :
+                       tx.type === 'transfer_bank' ? <ArrowRightCircle size={20} /> :
+                       tx.type === 'transfer' ? <Repeat size={20} /> :
+                       <ArrowDownLeft size={20} />}
+                    </div>
 
-              <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-4 sm:pt-0 mt-4 sm:mt-0 border-slate-50 relative">
-                 <p className={clsx(
-                    "font-extrabold text-xl",
-                    tx.netAmount > 0 ? "text-green-600" : "text-slate-800"
-                  )}>
-                    {tx.netAmount > 0 ? '+' : ''}{formatCurrency(tx.amount)}
-                 </p>
-                 <div className="flex gap-2">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Laba Bersih:</p>
-                    <p className="text-[11px] font-bold text-blue-600">{formatCurrency((tx.fee || 0) - (tx.feeExternal || 0))}</p>
-                 </div>
-                 
-                 <button
-                   onClick={(e) => {
-                     e.stopPropagation();
-                     setDeletingTx(tx);
-                   }}
-                   className="absolute -top-2 -right-2 sm:top-1/2 sm:-right-8 sm:-translate-y-1/2 p-2 text-slate-300 hover:text-red-500 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                   title="Hapus Transaksi"
-                 >
-                   <Trash2 size={16} />
-                 </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900 text-sm truncate">
+                          {tx.customerName || (tx.type === 'transfer_bank' ? 'Kirim Uang' : tx.type.replace('_', ' ').toUpperCase())}
+                        </span>
+                        {tx.paymentStatus && tx.paymentStatus !== 'success' && (
+                          <span className={clsx(
+                            "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter",
+                            tx.paymentStatus === 'pending' ? "bg-orange-100 text-orange-700" : "bg-red-100 text-red-700"
+                          )}>
+                            {tx.paymentStatus}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+                        <span className="uppercase">{tx.type.replace('_', ' ')}</span>
+                        <span>•</span>
+                        <span>{tx.timestamp ? format(safeParseDate(tx.timestamp), 'HH:mm') : ''}</span>
+                        <span>•</span>
+                        <span className="text-slate-500 font-bold">{accounts.find(a => a.id === tx.accountId)?.name}</span>
+                      </div>
+                      {tx.note && <p className="text-[10px] text-slate-400 italic mt-0.5 truncate leading-tight">"{tx.note}"</p>}
+                    </div>
+
+                    <div className="text-right shrink-0">
+                       <p className={clsx(
+                          "font-black text-sm",
+                          tx.netAmount > 0 ? "text-green-600" : (tx.netAmount < 0 ? "text-red-600" : "text-slate-900")
+                        )}>
+                          {tx.netAmount > 0 ? '+' : (tx.netAmount < 0 ? '-' : '')}{formatCurrency(tx.amount)}
+                       </p>
+                       <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                          <span className="text-[9px] font-bold text-slate-300 uppercase">Laba:</span>
+                          <span className={clsx(
+                            "text-[10px] font-black",
+                            (tx.profit ?? 0) > 0 ? "text-blue-500" : "text-slate-400"
+                          )}>
+                            {formatCurrency(tx.profit ?? 0)}
+                          </span>
+                       </div>
+                    </div>
+
+                    <button
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setDeletingTx(tx);
+                       }}
+                       className="p-2 text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                       title="Hapus"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </motion.div>
+                ))}
               </div>
-            </motion.div>
+            </div>
           ))
         )}
       </div>

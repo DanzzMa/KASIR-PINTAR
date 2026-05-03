@@ -1,21 +1,22 @@
 import { useState, FormEvent } from 'react';
-import { db } from '../lib/firebase';
-import { doc, setDoc, collection, addDoc, deleteDoc, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
-import { User } from 'firebase/auth';
-import { UserProfile, Account, AccountType } from '../types';
-import { Save, Wallet, AlertCircle, Plus, Trash2, CreditCard, Landmark, Smartphone, Edit2, X, Check } from 'lucide-react';
+import { Account, AccountType } from '../types';
+import { Save, Wallet, Plus, Trash2, CreditCard, Landmark, Smartphone, Edit2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
+import { formatNumber, getCleanNumber, formatCurrency } from '../lib/format';
+import { db } from '../lib/firebase';
+import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
 
 interface SettingsProps {
-  user: User;
-  profile?: UserProfile | null;
+  user: any;
   accounts: Account[];
   isInitialSetup: boolean;
+  onUpdate: () => void;
 }
 
-export default function Settings({ user, profile, accounts, isInitialSetup }: SettingsProps) {
-  const [displayName, setDisplayName] = useState(profile?.displayName || user.displayName || '');
+export default function Settings({ user, accounts, isInitialSetup, onUpdate }: SettingsProps) {
+  const [name, setName] = useState(user?.displayName || '');
   const [newAccName, setNewAccName] = useState('');
   const [newAccType, setNewAccType] = useState<AccountType>('cash');
   const [newAccBalance, setNewAccBalance] = useState('0');
@@ -27,25 +28,15 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
 
   const handleSaveProfile = async (e: FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setLoading(true);
     setSuccess(false);
 
     try {
-      const data = {
-        email: user.email,
-        displayName: displayName,
-        createdAt: profile?.createdAt || new Date().toISOString(),
-      };
-
-      await setDoc(doc(db, 'users', user.uid), data);
-      
-      // If initial setup and no accounts, prompt to add at least one
-      if (isInitialSetup && accounts.length === 0) {
-        alert('Silakan tambahkan minimal satu rekening/sumber saldo.');
-      } else {
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
-      }
+      await updateProfile(user, { displayName: name });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+      onUpdate();
     } catch (err) {
       console.error(err);
       alert('Gagal menyimpan profil.');
@@ -56,22 +47,29 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
 
   const handleAddAccount = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newAccName) return;
+    if (!newAccName || !user) return;
 
     setLoading(true);
     try {
-      const bal = parseFloat(newAccBalance) || 0;
-      const accountData = {
+      const bal = parseFloat(getCleanNumber(newAccBalance)) || 0;
+      if (bal < 0) {
+        alert('Saldo awal tidak boleh negatif.');
+        setLoading(false);
+        return;
+      }
+
+      await addDoc(collection(db, 'accounts'), {
         userId: user.uid,
         name: newAccName,
         type: newAccType,
         balance: bal,
         initialBalance: bal,
-      };
+        createdAt: serverTimestamp()
+      });
 
-      await addDoc(collection(db, 'users', user.uid, 'accounts'), accountData);
       setNewAccName('');
       setNewAccBalance('0');
+      onUpdate();
     } catch (err) {
       console.error(err);
       alert('Gagal menambahkan rekening.');
@@ -84,8 +82,9 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
     if (!deletingAcc) return;
     setLoading(true);
     try {
-      await deleteDoc(doc(db, 'users', user.uid, 'accounts', deletingAcc.id));
+      await deleteDoc(doc(db, 'accounts', deletingAcc.id));
       setDeletingAcc(null);
+      onUpdate();
     } catch (err) {
       console.error(err);
       alert('Gagal menghapus rekening.');
@@ -96,10 +95,13 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
 
   const handleEditBalance = async (e: FormEvent) => {
     e.preventDefault();
-    if (!editingAcc) return;
+    if (!editingAcc || !user) return;
 
-    const newBal = parseFloat(editedBalance);
-    if (isNaN(newBal)) return;
+    const newBal = parseFloat(getCleanNumber(editedBalance));
+    if (isNaN(newBal) || newBal < 0) {
+      alert('Saldo tidak boleh negatif.');
+      return;
+    }
 
     const diff = newBal - editingAcc.balance;
     if (diff === 0) {
@@ -109,27 +111,29 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
 
     setLoading(true);
     try {
-      const batch = writeBatch(db);
-      const transactionRef = doc(collection(db, 'transactions'));
-
-      batch.set(transactionRef, {
-        userId: user.uid,
-        accountId: editingAcc.id,
-        type: 'adjustment',
-        amount: Math.abs(diff),
-        fee: 0,
-        feeExternal: 0,
-        netAmount: diff,
-        note: `Edit Saldo (Koreksi dari Rp${editingAcc.balance.toLocaleString('id-ID')} ke Rp${newBal.toLocaleString('id-ID')})`,
-        timestamp: serverTimestamp(),
+      await runTransaction(db, async (transaction) => {
+        const txRef = doc(collection(db, 'transactions'));
+        const accountRef = doc(db, 'accounts', editingAcc.id);
+        
+        transaction.update(accountRef, { balance: newBal });
+        
+        transaction.set(txRef, {
+          userId: user.uid,
+          accountId: editingAcc.id,
+          type: 'adjustment',
+          amount: Math.abs(diff),
+          fee: 0,
+          feeExternal: 0,
+          netAmount: diff,
+          note: `Edit Saldo (Koreksi dari ${formatCurrency(editingAcc.balance)} ke ${formatCurrency(newBal)})`,
+          paymentStatus: 'success',
+          timestamp: new Date().toISOString(),
+          createdAt: serverTimestamp()
+        });
       });
 
-      batch.update(doc(db, 'users', user.uid, 'accounts', editingAcc.id), {
-        balance: increment(diff)
-      });
-
-      await batch.commit();
       setEditingAcc(null);
+      onUpdate();
     } catch (err) {
       console.error(err);
       alert('Gagal memperbarui saldo.');
@@ -146,258 +150,217 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
   ];
 
   return (
-    <div className="max-w-4xl mx-auto pb-10">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-slate-800 mb-2">
-          {isInitialSetup ? 'Lengkapi Profil Bisnis' : 'Pengaturan & Rekening'}
-        </h2>
-        <p className="text-slate-500">
-          Atur profil dan kelola berbagai sumber saldo bisnis Anda.
-        </p>
+    <div className="max-w-5xl mx-auto pb-20 md:pb-0">
+      <div className="mb-6">
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Pengaturan Akun</h2>
+        <p className="text-slate-500 text-xs font-medium">Kelola profil bisnis dan sumber modal Anda.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Profile Section */}
-        <div className="space-y-6">
-          <motion.form 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            onSubmit={handleSaveProfile} 
-            className="bg-white rounded-3xl shadow-xl shadow-slate-200 border border-slate-100 p-8 space-y-6"
-          >
-            <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-               <Save size={20} className="text-blue-600" />
-               Informasi Profil
-            </h3>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Bisnis / Nama Anda</label>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
-                placeholder="Contoh: Toko Berkah"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl transition-all shadow-lg shadow-blue-100 font-bold disabled:opacity-50"
-            >
-              Simpan Profil
-            </button>
-            {success && <p className="text-center text-green-600 text-sm font-bold">Berhasil disimpan!</p>}
-          </motion.form>
-
-          {/* Account List */}
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200 border border-slate-100 p-8">
-            <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-               <Wallet size={20} className="text-green-600" />
-               Daftar Rekening / Saldo
-            </h3>
-            
-            <div className="space-y-4">
-              {accounts.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 font-medium bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                   Belum ada rekening ditambahkan.
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Profile & Accounts List */}
+        <div className="lg:col-span-12 md:col-span-12 space-y-6">
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 space-y-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Profil Bisnis</h3>
+                   <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Save size={16} />
+                   </div>
                 </div>
-              ) : (
-                <AnimatePresence>
-                  {accounts.map(acc => (
-                    <motion.div 
-                      key={acc.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm">
-                           {(() => {
-                             const Icon = accTypes.find(t => t.id === acc.type)?.icon || Wallet;
-                             return <Icon size={20} />;
-                           })()}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800">{acc.name}</p>
-                          <p className="text-xs text-slate-400 font-bold uppercase tracking-tight">{acc.type}</p>
-                        </div>
-                      </div>
-                      <div className="text-right flex items-center gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 justify-end">
-                            <p className="font-bold text-slate-900">Rp{acc.balance.toLocaleString('id-ID')}</p>
-                            <button
-                              onClick={() => {
-                                setEditingAcc(acc);
-                                setEditedBalance(acc.balance.toString());
-                              }}
-                              className="p-1 text-blue-400 hover:text-blue-600 transition-colors"
-                              title="Edit Saldo"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                          </div>
-                          <p className="text-[10px] text-slate-400">Modal: Rp{acc.initialBalance.toLocaleString('id-ID')}</p>
-                        </div>
-                        <button 
-                          onClick={() => setDeletingAcc(acc)}
-                          className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Add Account Form */}
-        <motion.div 
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-white rounded-3xl shadow-xl shadow-slate-200 border border-slate-100 p-8 flex flex-col"
-        >
-          <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-             <Plus size={24} className="text-blue-600" />
-             Tambah Rekening Baru
-          </h3>
-
-          <form onSubmit={handleAddAccount} className="space-y-6">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Rekening / Wallet</label>
-              <input
-                type="text"
-                value={newAccName}
-                onChange={(e) => setNewAccName(e.target.value)}
-                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
-                placeholder="Contoh: DANA, BRI Bisnis, Cash Laci"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Jenis Rekening</label>
-              <div className="grid grid-cols-2 gap-3">
-                {accTypes.map(t => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setNewAccType(t.id)}
-                    className={clsx(
-                      "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all",
-                      newAccType === t.id 
-                        ? "border-blue-600 bg-blue-50 text-blue-600" 
-                        : "border-transparent bg-slate-50 text-slate-500"
-                    )}
-                  >
-                    <t.icon size={20} />
-                    <span className="text-xs font-bold">{t.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Saldo Awal (Modal)</label>
-              <div className="relative">
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-400">Rp</span>
-                <input
-                  type="number"
-                  value={newAccBalance}
-                  onChange={(e) => setNewAccBalance(e.target.value)}
-                  className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-lg"
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl transition-all shadow-lg shadow-green-100 font-bold mt-auto"
-            >
-              <Plus size={20} />
-              <span>Tambahkan Rekening</span>
-            </button>
-          </form>
-
-          {isInitialSetup && (
-            <div className="mt-8 p-4 bg-yellow-50 text-yellow-700 rounded-2xl border border-yellow-100 flex gap-3">
-              <AlertCircle className="shrink-0 mt-0.5" size={18} />
-              <p className="text-xs font-medium leading-relaxed">
-                Tambahkan minimal satu rekening agar Anda bisa mulai mencatat transaksi. Anda bisa menambahkan Rekening Bank, E-Wallet, atau sekadar dompet tunai.
-              </p>
-            </div>
-          )}
-        </motion.div>
-      </div>
-
-      {/* Edit Balance Modal */}
-      <AnimatePresence>
-        {editingAcc && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
-            >
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="text-xl font-bold text-slate-800">Edit Saldo</h3>
-                <button 
-                  onClick={() => setEditingAcc(null)}
-                  className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-all"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <form onSubmit={handleEditBalance} className="p-8 space-y-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-500 mb-2">Rekening</label>
-                  <p className="text-lg font-bold text-slate-800">{editingAcc.name}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Atur Saldo Baru</label>
-                  <div className="relative">
-                    <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-400">Rp</span>
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 px-1 tracking-widest">Nama Toko/Agen</label>
                     <input
-                      type="number"
-                      autoFocus
-                      value={editedBalance}
-                      onChange={(e) => setEditedBalance(e.target.value)}
-                      className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-2xl text-blue-600"
-                      required
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-sm"
+                      placeholder="Contoh: AGEN BERKAH"
                     />
                   </div>
-                  <p className="mt-3 text-xs text-slate-400 font-medium leading-relaxed">
-                    Perubahan akan dicatat sebagai transaksi <span className="font-bold">Penyesuaian</span> secara otomatis.
-                  </p>
-                </div>
-
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setEditingAcc(null)}
-                    className="flex-1 px-6 py-4 rounded-2xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all"
-                  >
-                    Batal
-                  </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl transition-all shadow-lg shadow-blue-100 font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md shadow-blue-200 disabled:opacity-50"
                   >
-                    <Check size={20} />
-                    Simpan
+                    SIMPAN PERUBAHAN
+                  </button>
+                  {success && <p className="text-center text-green-600 text-[10px] font-black uppercase tracking-widest">TERSIMPAN!</p>}
+                </form>
+              </motion.div>
+
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl shadow-blue-900/10 flex flex-col"
+              >
+                <div className="flex items-center justify-between mb-4">
+                   <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Tambah Rekening</h3>
+                   <div className="w-8 h-8 rounded-lg bg-white/10 text-white flex items-center justify-center">
+                      <Plus size={16} />
+                   </div>
+                </div>
+                <form onSubmit={handleAddAccount} className="space-y-4 flex-1 flex flex-col justify-between">
+                   <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={newAccName}
+                        onChange={(e) => setNewAccName(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl outline-none focus:bg-white/10 transition-all font-bold text-sm text-white placeholder:text-slate-600"
+                        placeholder="Nama Akun (Misal: BRI, DANA)"
+                      />
+                      <div className="grid grid-cols-4 gap-2">
+                        {accTypes.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setNewAccType(t.id)}
+                            title={t.label}
+                            className={clsx(
+                              "flex flex-col items-center justify-center p-2 rounded-xl border transition-all",
+                              newAccType === t.id 
+                                ? "border-blue-500 bg-blue-500/20 text-blue-400" 
+                                : "border-white/5 bg-white/5 text-slate-500 hover:text-slate-300"
+                            )}
+                          >
+                            <t.icon size={16} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-600 text-xs">Rp</span>
+                        <input
+                          type="text"
+                          value={newAccBalance}
+                          onChange={(e) => setNewAccBalance(formatNumber(e.target.value))}
+                          className="w-full pl-8 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl outline-none focus:bg-white/10 transition-all font-black text-sm text-blue-400"
+                          placeholder="Saldo Awal"
+                        />
+                      </div>
+                   </div>
+                   <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-white text-slate-900 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-200 mt-4"
+                   >
+                     DAFTARKAN AKUN
+                   </button>
+                </form>
+              </motion.div>
+           </div>
+
+           <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Kelola Rekening</h3>
+              </div>
+              <div className="divide-y divide-slate-50 overflow-x-auto">
+                 <table className="w-full text-left">
+                    <thead>
+                       <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
+                          <th className="px-6 py-3">Nama & Jenis</th>
+                          <th className="px-6 py-3 text-right">Saldo Saat Ini</th>
+                          <th className="px-6 py-3 text-right">Modal Awal</th>
+                          <th className="px-6 py-3 text-center">Aksi</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                       {accounts.map(acc => (
+                         <tr key={acc.id} className="group hover:bg-slate-50/50 transition-all">
+                            <td className="px-6 py-4">
+                               <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                                    {accTypes.find(t => t.id === acc.type)?.id.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                     <p className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight">{acc.name}</p>
+                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">{acc.type}</p>
+                                  </div>
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                               <div className="flex items-center justify-end gap-1 group/edit">
+                                  <span className="text-sm font-black text-slate-900 font-mono">{formatCurrency(acc.balance)}</span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingAcc(acc);
+                                      setEditedBalance(formatNumber(acc.balance.toString()));
+                                    }}
+                                    className="p-1 text-slate-300 hover:text-blue-500 transition-all"
+                                  >
+                                    <Edit2 size={10} />
+                                  </button>
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                               <span className="text-[11px] font-bold text-slate-400 font-mono italic">{formatCurrency(acc.initialBalance)}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                               <div className="flex items-center justify-center">
+                                  <button 
+                                    onClick={() => setDeletingAcc(acc)}
+                                    className="p-2 text-slate-300 hover:text-red-500 transition-all"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                               </div>
+                            </td>
+                         </tr>
+                       ))}
+                    </tbody>
+                 </table>
+                 {accounts.length === 0 && (
+                   <div className="p-12 text-center text-slate-400 text-xs font-black uppercase tracking-widest">Belum ada akun terdaftar</div>
+                 )}
+              </div>
+           </div>
+        </div>
+      </div>
+
+      {/* Modern Dialogs */}
+      <AnimatePresence>
+        {editingAcc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+                <h3 className="text-xs font-black uppercase tracking-widest">Koreksi Saldo</h3>
+                <button onClick={() => setEditingAcc(null)} className="text-slate-500 hover:text-white transition-all"><X size={16} /></button>
+              </div>
+
+              <form onSubmit={handleEditBalance} className="p-6 space-y-4">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Set Saldo Real {editingAcc.name}</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">Rp</span>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editedBalance}
+                        onChange={(e) => setEditedBalance(formatNumber(e.target.value))}
+                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-black text-xl text-blue-600"
+                      />
+                    </div>
+                    <p className="mt-2 text-[9px] text-slate-400 font-bold leading-tight uppercase">Sistem akan otomatis mencatat selisih sebagai transaksi PENYESUAIAN.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-blue-200"
+                  >
+                    {loading ? 'MENYIMPAN...' : 'SIMPAN SALDO'}
                   </button>
                 </div>
               </form>
@@ -405,39 +368,37 @@ export default function Settings({ user, profile, accounts, isInitialSetup }: Se
           </div>
         )}
       </AnimatePresence>
-      {/* Delete Confirmation Modal */}
+
       <AnimatePresence>
         {deletingAcc && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden"
             >
               <div className="p-8 text-center">
-                <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Trash2 size={32} />
+                <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 transform -rotate-12">
+                  <Trash2 size={24} />
                 </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Rekening?</h3>
-                <p className="text-slate-500 text-sm mb-8">
-                  Apakah Anda yakin ingin menghapus <span className="font-bold text-slate-800">{deletingAcc.name}</span>? 
-                  Tindakan ini tidak dapat dibatalkan, namun riwayat transaksi tetap tersimpan.
+                <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-2">Hapus Akun?</h3>
+                <p className="text-[11px] text-slate-500 font-bold uppercase tracking-tight mb-8">
+                  Menghapus <span className="text-red-500">{deletingAcc.name}</span> akan menghilangkan referensi akun namun riwayat tetap ada.
                 </p>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setDeletingAcc(null)}
-                    disabled={loading}
-                    className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all disabled:opacity-50"
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest"
                   >
-                    Batal
+                    BATAL
                   </button>
                   <button
                     onClick={handleDeleteAccount}
                     disabled={loading}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl transition-all font-bold disabled:opacity-50"
+                    className="flex-1 bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all disabled:opacity-50"
                   >
-                    {loading ? 'Menghapus...' : 'Ya, Hapus'}
+                    {loading ? '...' : 'YA, HAPUS'}
                   </button>
                 </div>
               </div>

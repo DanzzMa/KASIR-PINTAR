@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { User } from 'firebase/auth';
 import { Transaction, Account } from '../types';
-import { FileBarChart, PieChart, TrendingUp, Download, Calendar, Gamepad2, TrendingDown, ArrowRightCircle, Repeat } from 'lucide-react';
+import { FileBarChart, PieChart, TrendingUp, Download, TrendingDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { format, startOfDay, startOfMonth, endOfDay } from 'date-fns';
-import { id as idLocale } from 'date-fns/locale';
 import { clsx } from 'clsx';
+import { formatCurrency, safeParseDate } from '../lib/format';
+import { db } from '../lib/firebase';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
-export default function Reports({ user, accounts }: { user: User, accounts: Account[] }) {
+export default function Reports({ user, accounts }: { user: any, accounts: Account[] }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<'today' | 'month' | 'all'>('today');
 
   useEffect(() => {
+    if (!user) return;
+
     const q = query(
       collection(db, 'transactions'),
       where('userId', '==', user.uid),
@@ -22,20 +23,20 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Transaction));
+      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
       setTransactions(txs);
       setLoading(false);
+    }, (err) => {
+       console.error(err);
+       setLoading(false);
     });
 
-    return unsubscribe;
-  }, [user.uid]);
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   const filteredTxs = transactions.filter(tx => {
     if (!tx.timestamp) return false;
-    const date = tx.timestamp.toDate();
+    const date = safeParseDate(tx.timestamp);
     if (period === 'today') {
       return date >= startOfDay(new Date()) && date <= endOfDay(new Date());
     }
@@ -46,49 +47,44 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
   });
 
   const stats = filteredTxs.reduce((acc, tx) => {
-    const profit = (tx.fee || 0) - (tx.feeExternal || 0);
-    acc.totalVolume += tx.amount;
+    const profit = tx.profit !== undefined && tx.profit !== null ? tx.profit : (tx.type === 'expense' ? -(tx.amount || 0) : ((tx.fee || 0) - (tx.feeExternal || 0)));
     
-    // Expense reduces total profit (Net Profit)
-    if (tx.type === 'expense') {
-      acc.totalFees -= tx.amount;
-      acc.feeByType[tx.type] = (acc.feeByType[tx.type] || 0) - tx.amount;
-    } else {
+    // Exclude internal movements and income adjustment from business volume
+    if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment', 'transfer'].includes(tx.type)) {
+      acc.totalVolume += tx.amount;
+    }
+    
+    // Profit calculation for all types
+    if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment'].includes(tx.type)) {
       acc.totalFees += profit;
       acc.feeByType[tx.type] = (acc.feeByType[tx.type] || 0) + profit;
     }
     
     acc.count += 1;
-    acc.byType[tx.type] = (acc.byType[tx.type] || 0) + tx.amount;
+    if (!['transfer_in', 'cash_in', 'cash_out'].includes(tx.type)) {
+      acc.byType[tx.type] = (acc.byType[tx.type] || 0) + tx.amount;
+    }
     acc.byAccount[tx.accountId] = (acc.byAccount[tx.accountId] || 0) + tx.amount;
     return acc;
   }, { totalVolume: 0, totalFees: 0, count: 0, byType: {} as any, feeByType: {} as any, byAccount: {} as any });
 
-  const formatCurrency = (val: number) => {
-     return new Intl.NumberFormat('id-ID', {
-       style: 'currency',
-       currency: 'IDR',
-       minimumFractionDigits: 0,
-     }).format(val);
-  };
-
   const transactionTypes = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank', 'transfer', 'expense', 'adjustment'];
 
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-6 pb-20 md:pb-0">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-800">Laporan Bisnis</h2>
-          <p className="text-slate-500 font-medium">Analisis arus kas dari berbagai rekening Anda.</p>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Analisis Laba</h2>
+          <p className="text-slate-500 text-xs font-medium">Performa bisnis Anda secara real-time.</p>
         </div>
-        <div className="flex p-1 bg-slate-100 rounded-3xl">
+        <div className="flex p-1 bg-slate-100 rounded-2xl">
           {(['today', 'month', 'all'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               className={clsx(
-                "px-8 py-2.5 rounded-2xl text-sm font-bold transition-all",
-                period === p ? "bg-white text-blue-600 shadow-md" : "text-slate-500 hover:text-slate-700"
+                "px-4 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-tight transition-all",
+                period === p ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
               )}
             >
               {p === 'today' ? 'Hari Ini' : p === 'month' ? 'Bulan Ini' : 'Semua'}
@@ -98,60 +94,88 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-           <div className="h-64 bg-slate-100 rounded-[2.5rem] animate-pulse" />
-           <div className="h-64 bg-slate-100 rounded-[2.5rem] animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+           <div className="h-32 bg-slate-100 rounded-[2rem] animate-pulse" />
+           <div className="h-32 bg-slate-100 rounded-[2rem] animate-pulse" />
+           <div className="h-32 bg-slate-100 rounded-[2rem] animate-pulse" />
         </div>
       ) : (
-        <>
-          {/* Main Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          {/* Main Summary Compact */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <SummaryCard 
-              label="Jumlah Transaksi" 
-              value={stats.count.toString()} 
-              icon={TrendingUp} 
-              color="text-blue-600" 
-              bg="bg-blue-50"
-            />
-            <SummaryCard 
-              label="Volume Perputaran" 
-              value={formatCurrency(stats.totalVolume)} 
-              icon={FileBarChart} 
-              color="text-purple-600" 
-              bg="bg-purple-50"
-            />
-            <SummaryCard 
-              label="Keuntungan (Fee)" 
+              label="Keuntungan (Puro)" 
               value={formatCurrency(stats.totalFees)} 
               icon={PieChart} 
               color="text-green-600" 
               bg="bg-green-50"
             />
+            <SummaryCard 
+              label="Volume TRX" 
+              value={formatCurrency(stats.totalVolume)} 
+              icon={FileBarChart} 
+              color="text-blue-600" 
+              bg="bg-blue-50"
+            />
+            <SummaryCard 
+              label="Qty Transaksi" 
+              value={`${stats.count} TRX`} 
+              icon={TrendingUp} 
+              color="text-orange-600" 
+              bg="bg-orange-50"
+            />
           </div>
 
-          {/* Detailed Breakdown */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* By Account */}
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-               <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                 <Calendar className="text-blue-500" />
-                 Volume per Rekening
-               </h3>
-               <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* By Layanan Fees - Compact List */}
+            <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6">
+               <div className="flex items-center justify-between mb-4 px-1">
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Laba per Layanan</h3>
+               </div>
+               <div className="space-y-2">
+                 {transactionTypes.map(type => {
+                   const profit = stats.feeByType[type] || 0;
+                   if (profit === 0 && period !== 'all') return null;
+                   return (
+                     <div key={type} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-2">
+                           <div className={clsx(
+                              "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm",
+                              type === 'tarik_tunai' ? "bg-green-100 text-green-700" :
+                              type === 'setor_tunai' ? "bg-blue-100 text-blue-700" :
+                              type === 'expense' ? "bg-red-100 text-red-700" : "bg-slate-200 text-slate-600"
+                           )}>
+                              {type === 'expense' ? <TrendingDown size={14}/> : <TrendingUp size={14}/>}
+                           </div>
+                           <span className="text-[11px] font-bold text-slate-700 uppercase tracking-tight truncate max-w-[120px]">{type.replace('_', ' ')}</span>
+                        </div>
+                        <span className="text-[12px] font-black text-slate-900 font-mono">{formatCurrency(profit)}</span>
+                     </div>
+                   );
+                 })}
+               </div>
+            </div>
+
+            {/* By Account Volume - Gauge Style */}
+            <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6">
+               <div className="flex items-center justify-between mb-4 px-1">
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Perputaran Rekening</h3>
+               </div>
+               <div className="space-y-4">
                  {accounts.map(acc => {
                    const volume = stats.byAccount[acc.id] || 0;
                    const percentage = stats.totalVolume > 0 ? (volume / stats.totalVolume) * 100 : 0;
                    return (
-                     <div key={acc.id} className="space-y-2">
-                        <div className="flex justify-between text-sm font-bold">
-                           <span className="text-slate-600 font-bold">{acc.name}</span>
-                           <span className="text-slate-800 font-black">{formatCurrency(volume)}</span>
+                     <div key={acc.id} className="space-y-1.5">
+                        <div className="flex justify-between items-center text-[10px] font-black">
+                           <span className="text-slate-500 uppercase tracking-tight">{acc.name}</span>
+                           <span className="text-slate-900 font-mono">{formatCurrency(volume)}</span>
                         </div>
-                        <div className="h-3 w-full bg-slate-50 rounded-full overflow-hidden">
+                        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                            <motion.div 
                             initial={{ width: 0 }}
                             animate={{ width: `${percentage}%` }}
-                            className="h-full bg-blue-500 rounded-full shadow-inner"
+                            className="h-full bg-blue-500 rounded-full"
                            />
                         </div>
                      </div>
@@ -159,62 +183,19 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
                  })}
                </div>
             </div>
-
-            {/* By Layanan Fees */}
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-               <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                 <PieChart className="text-green-500" />
-                 Laba per Layanan
-               </h3>
-               <div className="space-y-4">
-                 {transactionTypes.map(type => (
-                   <div key={type} className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-sm transition-all group">
-                      <div className="flex items-center gap-3">
-                         <div className={clsx(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm",
-                            type === 'tarik_tunai' ? "bg-green-50 text-green-600" :
-                            type === 'setor_tunai' ? "bg-blue-50 text-blue-600" :
-                            type === 'topup' ? "bg-purple-50 text-purple-600" : 
-                            type === 'topup_game' ? "bg-pink-50 text-pink-600" :
-                             type === 'transfer_bank' ? "bg-indigo-50 text-indigo-600" :
-                             type === 'transfer' ? "bg-slate-50 text-slate-600" :
-                             type === 'expense' ? "bg-red-50 text-red-600" :
-                             "bg-orange-50 text-orange-600"
-                         )}>
-                            {type === 'topup_game' ? <Gamepad2 size={24} /> : 
-                              type === 'expense' ? <TrendingDown size={24} /> :
-                              type === 'transfer_bank' ? <ArrowRightCircle size={24} /> :
-                              type === 'transfer' ? <Repeat size={24} /> :
-                              <FileBarChart size={24} />}
-                         </div>
-                         <div>
-                            <span className="font-bold text-slate-700 capitalize block leading-tight">{type.replace('_', ' ')}</span>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{Math.round((stats.feeByType[type] || 0) / (stats.totalFees || 1) * 100)}% Kontribusi</span>
-                         </div>
-                      </div>
-                      <span className="font-black text-slate-900 text-lg">{formatCurrency(stats.feeByType[type] || 0)}</span>
-                   </div>
-                 ))}
-               </div>
-            </div>
           </div>
 
-          {/* Call to Action */}
-          <div className="bg-slate-900 rounded-[2.5rem] p-8 md:p-12 text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-2xl shadow-slate-200">
-             <div className="space-y-3 text-center md:text-left pt-2">
-                <h4 className="text-3xl font-extrabold">Ingin Analisis Lebih Dalam?</h4>
-                <p className="text-slate-400 font-medium text-lg leading-relaxed max-w-md">
-                  Gunakan fitur filter per rekening di tab transaksi untuk melihat aliran dana secara spesifik di setiap bank atau e-wallet.
-                </p>
+          <div className="bg-slate-900 rounded-[2rem] p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4">
+             <div className="text-center md:text-left">
+                <h4 className="text-sm font-black uppercase tracking-wider">Ekspor Data Laporan</h4>
+                <p className="text-[10px] text-slate-500 font-medium">Download rincian lengkap dalam format CSV/Excel.</p>
              </div>
-             <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-                <button className="bg-blue-600 text-white px-8 py-5 rounded-2xl font-bold shadow-xl shadow-blue-900 flex items-center justify-center gap-2 hover:scale-105 transition-all">
-                  <Download size={20} />
-                  <span>Ekspor CSV</span>
-                </button>
-             </div>
+             <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-blue-900/20">
+               <Download size={14} />
+               <span>Ekspor Rekap</span>
+             </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -222,20 +203,14 @@ export default function Reports({ user, accounts }: { user: User, accounts: Acco
 
 function SummaryCard({ label, value, icon: Icon, color, bg }: { label: string, value: string, icon: any, color: string, bg: string }) {
   return (
-    <motion.div 
-      whileHover={{ y: -5 }}
-      className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm space-y-6 relative overflow-hidden group"
-    >
-      <div className={clsx("w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110", bg, color)}>
-         <Icon size={28} />
+    <div className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex items-center gap-4 group">
+      <div className={clsx("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 shadow-sm", bg, color)}>
+         <Icon size={20} />
       </div>
       <div>
-         <p className="text-xs font-black text-slate-400 uppercase tracking-[2px] mb-2">{label}</p>
-         <p className={clsx("text-2xl font-black truncate leading-none", color === 'text-slate-800' ? "text-slate-800" : color)}>{value}</p>
+         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+         <p className={clsx("text-lg font-black leading-none", color)}>{value}</p>
       </div>
-      <div className="absolute top-0 right-0 p-4 opacity-5">
-         <Icon size={80} />
-      </div>
-    </motion.div>
+    </div>
   );
 }
