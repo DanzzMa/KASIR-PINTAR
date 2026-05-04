@@ -4,8 +4,6 @@ import { PlusCircle, Wallet, ArrowDownCircle, ArrowUpCircle, Smartphone, Receipt
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 import { formatNumber, getCleanNumber, formatCurrency } from '../lib/format';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 
 interface TransactionFormProps {
   user: any;
@@ -73,7 +71,6 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
         cashImpact = feeMethod === 'added' ? amt + f : amt;
       } else if (type === 'transfer') {
         netImpact = feeMethod === 'added' ? -(amt + f + fe) : -amt;
-        // cashImpact is not used for internal transfer
       } else if (type === 'expense') {
         netImpact = -amt;
       } else if (type === 'adjustment') {
@@ -82,45 +79,46 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
         netImpact = amt - fe;
         cashImpact = f - amt;
       } else {
-        // setor_tunai, topup, ppob, topup_game
         netImpact = feeMethod === 'added' ? -(amt + fe) : -(amt - f + fe);
         cashImpact = feeMethod === 'added' ? amt + f : amt;
       }
 
-      await runTransaction(db, async (transaction) => {
-        const txsRef = doc(collection(db, "transactions"));
-        const digitalAccRef = doc(db, "accounts", selectedAccountId);
-        const cashAccRef = needsCashAccount && selectedCashAccountId ? doc(db, "accounts", selectedCashAccountId) : null;
-        const toAccRef = type === "transfer" && toAccountId ? doc(db, "accounts", toAccountId) : null;
+      // 1. Update Digital Account
+      const digitalAcc = accounts.find(a => a.id === selectedAccountId);
+      if (digitalAcc) {
+        await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...digitalAcc, balance: digitalAcc.balance + netImpact })
+        });
+      }
 
-        // ALL READS FIRST
-        const digitalAcc = await transaction.get(digitalAccRef);
-        if (!digitalAcc.exists()) throw new Error("Account not found");
+      // 2. Update Cash Account if needed
+      const cashAcc = needsCashAccount && selectedCashAccountId ? accounts.find(a => a.id === selectedCashAccountId) : null;
+      if (cashAcc) {
+        await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...cashAcc, balance: cashAcc.balance + cashImpact })
+        });
+      }
 
-        let cashAcc = null;
-        if (cashAccRef) {
-          cashAcc = await transaction.get(cashAccRef);
-        }
+      // 3. Update To Account if transfer
+      const toAcc = type === "transfer" && toAccountId ? accounts.find(a => a.id === toAccountId) : null;
+      if (toAcc) {
+        await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...toAcc, balance: toAcc.balance + amt })
+        });
+      }
 
-        let toAcc = null;
-        if (toAccRef) {
-          toAcc = await transaction.get(toAccRef);
-        }
-
-        // ALL WRITES AFTER
-        let newDigitalBalance = digitalAcc.data().balance + netImpact;
-        transaction.update(digitalAccRef, { balance: newDigitalBalance });
-
-        if (cashAcc && cashAcc.exists() && cashAccRef) {
-          transaction.update(cashAccRef, { balance: cashAcc.data().balance + cashImpact });
-        }
-
-        if (toAcc && toAcc.exists() && toAccRef) {
-          transaction.update(toAccRef, { balance: toAcc.data().balance + amt });
-        }
-
-        transaction.set(txsRef, {
-          userId: user.uid,
+      // 4. Save Transaction
+      await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
           type,
           amount: amt,
           fee: f,
@@ -136,14 +134,12 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
           accountId: selectedAccountId,
           toAccountId: type === "transfer" ? toAccountId : null,
           cashAccountId: needsCashAccount ? selectedCashAccountId : null,
-          timestamp: new Date().toISOString(),
-          createdAt: serverTimestamp(),
-        });
+        })
       });
 
       onComplete();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'transactions');
+      console.error(err);
     } finally {
       setLoading(false);
     }

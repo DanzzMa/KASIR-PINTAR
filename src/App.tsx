@@ -15,10 +15,7 @@ import { LayoutGrid, ListOrdered, PlusCircle, FileBarChart, Settings as Settings
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { useAuth } from './components/FirebaseProvider';
-import { auth } from './lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from './lib/firebase';
+import { useAuth } from './components/AuthProvider';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -27,27 +24,31 @@ function cn(...inputs: ClassValue[]) {
 type Tab = 'dashboard' | 'transactions' | 'add' | 'reports' | 'settings';
 
 export default function App() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
-  useEffect(() => {
-    if (!user) {
-      setAccounts([]);
-      return;
+  const fetchAccounts = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/accounts?userId=${user.id}`);
+      const data = await response.json();
+      setAccounts(data);
+    } catch (err) {
+      console.error(err);
     }
+  };
 
-    const q = query(collection(db, 'accounts'), where('userId', '==', user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const accs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Account));
-      setAccounts(accs);
-    });
-
-    return () => unsubscribe();
+  useEffect(() => {
+    if (user) {
+      // In a real app, I'd fetch data here.
+      // For this simplified local version, I'll add the necessary endpoints.
+      fetchAccounts();
+    }
   }, [user]);
 
-  const handleLogout = async () => {
-    await auth.signOut();
+  const handleLogout = () => {
+    logout();
     setActiveTab('dashboard');
   };
 
@@ -66,8 +67,6 @@ export default function App() {
   if (!user) {
     return <Auth />;
   }
-
-  const fetchAccounts = () => {}; // No-op, managed by onSnapshot
 
   // Initial setup if no accounts
   if (user && accounts.length === 0 && activeTab !== 'settings') {

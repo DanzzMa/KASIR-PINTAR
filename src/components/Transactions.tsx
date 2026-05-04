@@ -6,8 +6,6 @@ import { format } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
 import { clsx } from 'clsx';
 import { formatCurrency, safeParseDate } from '../lib/format';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, doc, runTransaction } from 'firebase/firestore';
 
 export default function Transactions({ user, accounts, onUpdate }: { user: any, accounts: Account[], onUpdate?: () => void }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -18,53 +16,51 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
+  const fetchTransactions = async () => {
     if (!user) return;
-
-    const q = query(
-      collection(db, 'transactions'),
-      where('userId', '==', user.uid),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setTransactions(txs);
-      setLoading(false);
-    }, (err) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/transactions?userId=${user.id}`);
+      const data = await response.json();
+      // Sort by date (descending)
+      const sorted = data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTransactions(sorted);
+    } catch (err) {
       console.error(err);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
-  }, [user?.uid]);
+  useEffect(() => {
+    fetchTransactions();
+  }, [user?.id]);
 
   const handleDeleteTransaction = async () => {
     if (!deletingTx || isDeleting) return;
     
     setIsDeleting(true);
     try {
-      await runTransaction(db, async (transaction) => {
-        const txRef = doc(db, 'transactions', deletingTx.id);
-        const accountRef = doc(db, 'accounts', deletingTx.accountId);
-        
-        const accountDoc = await transaction.get(accountRef);
-        if (!accountDoc.exists()) {
-          throw new Error('Account not found');
-        }
+      // 1. Delete transaction
+      const response = await fetch(`/api/transactions/${deletingTx.id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Fail to delete');
 
-        const currentBalance = accountDoc.data().balance;
-        // Revert the transaction effect on balance
-        const newBalance = currentBalance - deletingTx.netAmount;
-        
-        transaction.delete(txRef);
-        transaction.update(accountRef, { balance: newBalance });
-      });
+      // 2. Update account balance (Local logic)
+      const account = accounts.find(a => a.id === deletingTx.accountId);
+      if (account) {
+        const newBalance = (account.balance || 0) - deletingTx.netAmount;
+        await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...account, balance: newBalance })
+        });
+      }
 
       setDeletingTx(null);
+      fetchTransactions();
       if (onUpdate) onUpdate();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `transactions/${deletingTx.id}`);
+      console.error(err);
     } finally {
       setIsDeleting(false);
     }

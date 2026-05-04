@@ -5,34 +5,29 @@ import { motion } from 'motion/react';
 import { format, startOfDay, startOfMonth, endOfDay } from 'date-fns';
 import { clsx } from 'clsx';
 import { formatCurrency, safeParseDate } from '../lib/format';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
 export default function Reports({ user, accounts }: { user: any, accounts: Account[] }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<'today' | 'month' | 'all'>('today');
 
-  useEffect(() => {
+  const fetchTransactions = async () => {
     if (!user) return;
-
-    const q = query(
-      collection(db, 'transactions'),
-      where('userId', '==', user.uid),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setTransactions(txs);
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/transactions?userId=${user.id}`);
+      const data = await response.json();
+      setTransactions(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setLoading(false);
-    }, (err) => {
-       console.error(err);
-       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
-  }, [user?.uid]);
+  useEffect(() => {
+    fetchTransactions();
+  }, [user?.id]);
 
   const filteredTxs = transactions.filter(tx => {
     if (!tx.timestamp) return false;

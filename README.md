@@ -47,32 +47,54 @@ Atau melalui terminal:
 - **Mac/Linux**: `PORT=3001 npm run dev`
 - **Windows**: `set PORT=3001 && npm run dev`
 
-## Cara Install Firebase (Local)
+### 2. Login Firebase di Server/Remote (PASTIKAN INI DILAKUKAN)
 
-Untuk menggunakan Firebase di komputer lokal:
+Jika Anda menggunakan SSH atau server yang tidak memiliki browser, gunakan perintah ini untuk login:
 
-1. **Install Firebase CLI**:
+1. **Jalankan Login Headless**:
    ```bash
-   npm install -g firebase-tools
+   firebase login --no-localhost
    ```
+2. **Buka Link di Browser PC**: Copy Link yang muncul di terminal, buka di browser PC Anda, lalu login.
+3. **Copy Authorization Code**: Setelah sukses, kodenya akan muncul di browser. Copy dan Paste ke terminal server.
 
-2. **Login ke Firebase**:
-   ```bash
-   firebase login
-   ```
+### 3. Cara Install Firebase (Local/Server)
 
-3. **Inisialisasi Project**:
-   Hubungkan folder local dengan project Firebase Anda:
+Setelah login sukses:
+
+1. **Inisialisasi Project**:
    ```bash
    firebase init firestore
    ```
-   Pilih "Use an existing project" dan cari project Anda.
+   *   Pilih: `Use an existing project`.
+   *   Pilih: Project Firebase Anda.
+   *   Jika ditanya `What file should be used for Firestore Rules?`, tekan ENTER saja (karena sudah ada file `firestore.rules`).
+   *   Jika ditanya `File firestore.rules already exists. Overwrite?`, pilih **N** (No) agar aturan yang sudah saya buat tidak hilang.
 
-4. **Deploy Security Rules**:
-   Gunakan file `firestore.rules` yang sudah ada:
+2. **Deploy Security Rules**:
    ```bash
    firebase deploy --only firestore:rules
    ```
+
+### 4. Mengatasi Error "unauthorized-domain" saat Login
+
+Jika muncul error `auth/unauthorized-domain` saat klik "Lanjutkan dengan Google":
+
+1.  Buka **Firebase Console** -> **Authentication** -> **Settings**.
+2.  Pilih **Authorized domains**.
+3.  Klik **Add domain**.
+4.  Masukkan IP server Anda atau domain yang digunakan (contoh: `192.168.1.100` atau `danmalab`).
+5.  Simpan dan coba login kembali.
+
+### 5. Aktifkan Akun Lokal (Email & Password)
+
+Untuk menggunakan fitur login dengan email/password (Akun Lokal):
+
+1.  Buka **Firebase Console** -> **Authentication** -> **Sign-in method**.
+2.  Klik **Add new provider**.
+3.  Pilih **Email/Password**.
+4.  Klik **Enable** dan **Save**.
+5.  Sekarang Anda bisa mendaftar dan login langsung dari aplikasi.
 
 ## Scripts
 

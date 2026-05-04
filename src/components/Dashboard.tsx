@@ -2,12 +2,10 @@ import { useState, useEffect } from 'react';
 import { Transaction, Account } from '../types';
 import { Wallet, ArrowUpRight, ArrowDownLeft, Plus, TrendingUp, Landmark, Smartphone, CreditCard, TrendingDown, History } from 'lucide-react';
 import { motion } from 'motion/react';
-import { format, startOfDay } from 'date-fns';
+import { format, startOfDay, isAfter } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { clsx } from 'clsx';
 import { formatCurrency, safeParseDate } from '../lib/format';
-import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 interface DashboardProps {
   user: any;
@@ -20,40 +18,28 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
   const [transactionsToday, setTransactionsToday] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchData = async () => {
     if (!user) return;
+    try {
+      const response = await fetch(`/api/transactions?userId=${user.id}`);
+      const data = await response.json();
+      
+      const sorted = data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setRecentTransactions(sorted.slice(0, 5));
 
-    const today = startOfDay(new Date());
-
-    const qRecent = query(
-      collection(db, 'transactions'),
-      where('userId', '==', user.uid),
-      orderBy('timestamp', 'desc'),
-      limit(5)
-    );
-
-    const qToday = query(
-      collection(db, 'transactions'),
-      where('userId', '==', user.uid),
-      where('timestamp', '>=', today.toISOString())
-    );
-
-    const unsubRecent = onSnapshot(qRecent, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setRecentTransactions(txs);
+      const today = startOfDay(new Date());
+      const todayTxs = data.filter((t: any) => isAfter(new Date(t.createdAt), today));
+      setTransactionsToday(todayTxs);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    const unsubToday = onSnapshot(qToday, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setTransactionsToday(txs);
-    });
-
-    return () => {
-      unsubRecent();
-      unsubToday();
-    };
-  }, [user?.uid]);
+  useEffect(() => {
+    fetchData();
+  }, [user?.id]);
 
   const totalBalance = accounts.reduce((acc, curr) => acc + curr.balance, 0);
 

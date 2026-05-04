@@ -2,7 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { AuthProvider } from './components/FirebaseProvider.tsx';
+import { AuthProvider } from './components/AuthProvider.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
