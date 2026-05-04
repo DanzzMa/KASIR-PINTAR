@@ -4,13 +4,44 @@ import path from "path";
 import * as dotenv from "dotenv";
 import fs from "fs";
 import Database from "better-sqlite3";
+import cron from "node-cron";
 
 dotenv.config();
 
 const DATA_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const DB_PATH = path.join(DATA_DIR, 'database.sqlite');
 
-const db = new Database(path.join(DATA_DIR, 'database.sqlite'));
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR);
+
+// --- Penjadwalan Backup Otomatis (Setiap Jam) ---
+cron.schedule('0 * * * *', () => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(BACKUP_DIR, `backup-${timestamp}.sqlite`);
+  
+  try {
+    fs.copyFileSync(DB_PATH, backupPath);
+    console.log(`[Backup] Database berhasil dibackup ke: ${backupPath}`);
+    
+    // Hapus backup lama (simpan 24 backup terakhir saja)
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.endsWith('.sqlite'))
+      .map(f => ({ name: f, time: fs.statSync(path.join(BACKUP_DIR, f)).mtime.getTime() }))
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length > 24) {
+      files.slice(24).forEach(file => {
+        fs.unlinkSync(path.join(BACKUP_DIR, file.name));
+        console.log(`[Backup] Menghapus backup lama: ${file.name}`);
+      });
+    }
+  } catch (err) {
+    console.error('[Backup] Gagal melakukan backup:', err);
+  }
+});
+
+const db = new Database(DB_PATH);
 
 // Inisialisasi Tabel SQLite
 db.exec(`

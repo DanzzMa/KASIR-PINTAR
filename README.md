@@ -1,24 +1,43 @@
-# Local Installation Guide
+# Panduan Instalasi Lokal
 
-This project is a React application built with Vite, using Firebase for authentication and database.
+Project ini adalah aplikasi Kasir Pintar (KasPintar) yang menggunakan **SQLite** sebagai database utama dan Express sebagai backend.
 
-## Prerequisites
+## Prasyarat
 
-- **Node.js**: Version 18 or higher.
-- **npm**: Usually comes with Node.js.
+- **Node.js**: Versi 18 atau lebih tinggi.
+- **npm**: Biasanya sudah terinstal bersama Node.js.
 
-## Installation Steps
+## Langkah Instalasi (Database Lokal SQLite)
 
-1. **Download or Clone the Repository**:
-   Download the source code to your local machine.
+1. **Download/Clone Repository**:
+   Download source code ke komputer Anda.
 
 2. **Install Dependencies**:
-   Open your terminal in the project root directory and run:
+   Buka terminal di folder project dan jalankan:
    ```bash
    npm install
+   npm install better-sqlite3
    ```
 
-3. **Configure Firebase**:
+3. **Jalankan Server Development**:
+   ```bash
+   npm run dev
+   ```
+   Aplikasi akan berjalan di `http://localhost:3000` (atau port yang Anda tentukan).
+
+4. **Auto Backup**:
+   Aplikasi ini otomatis melakukan backup database SQLite setiap **1 jam sekali**. File backup disimpan di folder `data/backups/`. Aplikasi akan menyimpan 24 file backup terbaru (rotasi harian).
+
+5. **Cara Login**:
+   Saat halaman login muncul, klik **DAFTAR SEKARANG** untuk membuat akun lokal baru. Data Anda akan tersimpan aman di file `data/database.sqlite`.
+
+---
+
+## Opsi Lain: Menggunakan Firebase (Opsional)
+
+Jika Anda tetap ingin menggunakan Firebase, ikuti langkah berikut:
+
+### 1. Konfigurasi Firebase Dasar
    - The application relies on `firebase-applet-config.json` in the root directory for its configuration.
    - If you are running this project independently, you should create a project on the [Firebase Console](https://console.firebase.google.com/).
    - Enable **Authentication** (Google Provider) and **Firestore Database**.
