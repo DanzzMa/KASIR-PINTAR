@@ -85,36 +85,6 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
         cashImpact = feeMethod === 'added' ? amt + f : amt;
       }
 
-      // 1. Update Digital Account
-      const digitalAcc = accounts.find(a => a.id === selectedAccountId);
-      if (digitalAcc) {
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...digitalAcc, balance: digitalAcc.balance + netImpact })
-        });
-      }
-
-      // 2. Update Cash Account if needed
-      const cashAcc = needsCashAccount && selectedCashAccountId ? accounts.find(a => a.id === selectedCashAccountId) : null;
-      if (cashAcc) {
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...cashAcc, balance: cashAcc.balance + cashImpact })
-        });
-      }
-
-      // 3. Update To Account if transfer
-      const toAcc = type === "transfer" && toAccountId ? accounts.find(a => a.id === toAccountId) : null;
-      if (toAcc) {
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...toAcc, balance: toAcc.balance + amt })
-        });
-      }
-
       // 4. Save Transaction
       await fetch('/api/transactions', {
         method: 'POST',
@@ -126,7 +96,9 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
           fee: f,
           feeExternal: fe,
           feeMethod,
-          netAmount: netImpact,
+          netAmount: netImpact, // Keep for historical reasons if needed, but netImpact is what's used for balance
+          netImpact: netImpact,
+          cashImpact: cashImpact,
           note,
           customerName,
           referenceNumber,
@@ -377,11 +349,11 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
                           className={clsx(
                             "flex-1 min-w-[120px] px-3 py-2 rounded-xl border transition-all text-left group",
                             selectedAccountId === acc.id 
-                              ? "border-blue-500 bg-blue-50 ring-2 ring-blue-50" 
+                              ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-50" 
                               : "border-slate-100 bg-white hover:bg-slate-50 disabled:opacity-30"
                           )}
                         >
-                          <p className={clsx("font-bold text-[11px] truncate uppercase", selectedAccountId === acc.id ? "text-blue-700" : "text-slate-600")}>{acc.name}</p>
+                          <p className={clsx("font-bold text-[11px] truncate uppercase", selectedAccountId === acc.id ? "text-indigo-700" : "text-slate-600")}>{acc.name}</p>
                           <p className="text-[9px] font-bold text-slate-400 mt-0.5">{formatCurrency(acc.balance)}</p>
                         </button>
                       ))}
@@ -542,14 +514,14 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
                <div className="space-y-4 mb-8">
                   <div className="flex justify-between items-center pb-3 border-b border-white/5">
                     <span className="text-xs text-slate-400 font-bold uppercase">Laba Bersih</span>
-                    <span className="text-xl font-black text-blue-400">
+                    <span className="text-xl font-black text-indigo-400">
                       {formatCurrency(((parseFloat(getCleanNumber(fee)) || 0) - (parseFloat(getCleanNumber(feeExternal)) || 0)))}
                     </span>
                   </div>
                   
                   <div className="space-y-3">
                     <p className="text-[10px] font-black text-slate-600 uppercase">Rangkuman Alur:</p>
-                    <div className="bg-white/5 p-4 rounded-2xl text-[11px] font-medium leading-relaxed text-slate-300">
+                    <div className="bg-indigo-500/10 p-4 rounded-2xl text-[11px] font-medium leading-relaxed text-slate-300">
                       {type === 'tarik_tunai' 
                       ? (feeMethod === 'added'
                           ? `Pelanggan bayar ${formatCurrency(parseFloat(getCleanNumber(amount))||0)} digital & ${formatCurrency(parseFloat(getCleanNumber(fee))||0)} cash. Anda beri cash ${formatCurrency(parseFloat(getCleanNumber(amount))||0)}. Saldo digital sistem bertambah ${formatCurrency((parseFloat(getCleanNumber(amount))||0) - (parseFloat(getCleanNumber(feeExternal))||0))}.`

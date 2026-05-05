@@ -11,7 +11,8 @@ import Transactions from './components/Transactions';
 import TransactionForm from './components/TransactionForm';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
-import { LayoutGrid, ListOrdered, PlusCircle, FileBarChart, Settings as SettingsIcon, LogOut, Wallet } from 'lucide-react';
+import Debts from './components/Debts';
+import { LayoutGrid, ListOrdered, PlusCircle, FileBarChart, Settings as SettingsIcon, LogOut, Wallet, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -21,12 +22,13 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type Tab = 'dashboard' | 'transactions' | 'add' | 'reports' | 'settings';
+type Tab = 'dashboard' | 'transactions' | 'debts' | 'add' | 'reports' | 'settings';
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [logoUrl, setLogoUrl] = useState('');
 
   const fetchAccounts = async () => {
     if (!user) return;
@@ -39,11 +41,31 @@ export default function App() {
     }
   };
 
+  const fetchLogo = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/settings?userId=${user.id}`);
+      const data = await response.json();
+      if (data.app_logo_url) {
+        setLogoUrl(data.app_logo_url);
+        // Update favicon
+        let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.getElementsByTagName('head')[0].appendChild(link);
+        }
+        link.href = data.app_logo_url;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (user) {
-      // In a real app, I'd fetch data here.
-      // For this simplified local version, I'll add the necessary endpoints.
       fetchAccounts();
+      fetchLogo();
     }
   }, [user]);
 
@@ -79,6 +101,8 @@ export default function App() {
         return <Dashboard user={user} accounts={accounts} onNavigate={setActiveTab} />;
       case 'transactions':
         return <Transactions user={user} accounts={accounts} onUpdate={fetchAccounts} />;
+      case 'debts':
+        return <Debts user={user} />;
       case 'add':
         return <TransactionForm user={user} accounts={accounts} onComplete={() => { fetchAccounts(); setActiveTab('dashboard'); }} />;
       case 'reports':
@@ -91,23 +115,28 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 pb-20 md:pb-0 md:pl-64">
+    <div className="min-h-screen fresh-gradient text-slate-900 pb-20 md:pb-0 md:pl-64">
       {/* Sidebar - Desktop - Bento Styled */}
       <aside className="fixed left-0 top-0 h-full w-64 p-5 hidden md:flex flex-col z-30">
-        <div className="bg-white h-full w-full rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col p-6 overflow-hidden">
+        <div className="glass-card h-full w-full rounded-[2.5rem] flex flex-col p-6 overflow-hidden">
           <div className="flex items-center gap-3 mb-12 px-2">
-            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xl shadow-slate-200">
-              <Wallet size={20} />
+            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xl shadow-slate-200 overflow-hidden">
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <Wallet size={20} />
+              )}
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tighter text-slate-900 leading-none">AGENT</h1>
-              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">Fintech App</p>
+              <h1 className="text-xl font-black tracking-tighter text-slate-900 leading-none">{user?.displayName?.split(' ')[0] || 'AGENT'}</h1>
+              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">Kasir Pintar</p>
             </div>
           </div>
 
           <nav className="flex-1 space-y-1">
             <NavItem icon={LayoutGrid} label="Dasbor" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
             <NavItem icon={ListOrdered} label="Mutasi" active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
+            <NavItem icon={Users} label="Piutang" active={activeTab === 'debts'} onClick={() => setActiveTab('debts')} />
             <NavItem icon={PlusCircle} label="Transaksi" active={activeTab === 'add'} onClick={() => setActiveTab('add')} />
             <NavItem icon={FileBarChart} label="Laporan" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
             <NavItem icon={SettingsIcon} label="Sistem" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
@@ -146,9 +175,10 @@ export default function App() {
 
       {/* Bottom Nav - Mobile */}
       <div className="fixed bottom-0 left-0 right-0 p-4 md:hidden z-40">
-        <nav className="h-16 bg-white/90 border border-slate-100 backdrop-blur-md rounded-[2.5rem] shadow-xl shadow-slate-200 flex items-center justify-around px-4">
+        <nav className="h-16 bg-white/80 border border-white/20 backdrop-blur-md rounded-[2.5rem] shadow-xl shadow-blue-100/50 flex items-center justify-around px-4">
           <MobileNavItem icon={LayoutGrid} active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <MobileNavItem icon={ListOrdered} active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
+          <MobileNavItem icon={Users} active={activeTab === 'debts'} onClick={() => setActiveTab('debts')} />
           <button 
             onClick={() => setActiveTab('add')}
             className={clsx(
@@ -177,7 +207,7 @@ function NavItem({ icon: Icon, label, active, onClick }: { icon: any, label: str
           : "text-slate-500 hover:bg-slate-50 hover:border-slate-100"
       )}
     >
-      <Icon size={18} className={cn(active ? "text-blue-400" : "group-hover:scale-110 transition-transform")} />
+      <Icon size={18} className={cn(active ? "text-blue-500" : "group-hover:scale-110 transition-transform")} />
       <span className="font-black text-[11px] uppercase tracking-widest">{label}</span>
     </button>
   );

@@ -42,3 +42,15 @@ export interface Transaction {
   profit?: number;
   timestamp: string; // ISO string
 }
+
+export interface Debt {
+  id: string;
+  userId: string;
+  customerName: string;
+  amount: number;
+  remainingAmount: number;
+  status: 'unpaid' | 'partially_paid' | 'paid';
+  dueDate?: string;
+  createdAt: string;
+  note?: string;
+}

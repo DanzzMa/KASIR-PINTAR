@@ -47,6 +47,22 @@
         "feeMethod": { "type": "string", "enum": ["added", "deducted"] }
       },
       "required": ["userId", "accountId", "type", "amount", "fee", "netAmount", "timestamp"]
+    },
+    "Debt": {
+      "title": "Debt / Piutang",
+      "description": "Outstanding payments from customers",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["unpaid", "partially_paid", "paid"] },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" }
+      },
+      "required": ["userId", "customerName", "amount", "remainingAmount", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -61,6 +77,10 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "List of all transactions"
+    },
+    "/debts/{debtId}": {
+      "schema": "Debt",
+      "description": "Unpaid transactions or loans"
     }
   }
 }

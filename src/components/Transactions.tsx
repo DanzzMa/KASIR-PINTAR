@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Transaction, Account } from '../types';
-import { Search, ArrowUpRight, ArrowDownLeft, Gamepad2, ArrowRightCircle, Repeat, TrendingDown, Info, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, ArrowUpRight, ArrowDownLeft, Gamepad2, ArrowRightCircle, Repeat, TrendingDown, Info, Trash2, AlertTriangle, Share2, Printer, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
@@ -15,6 +15,7 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
   const [filterAccount, setFilterAccount] = useState<string>('all');
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [receiptTx, setReceiptTx] = useState<Transaction | null>(null);
 
   const fetchTransactions = async () => {
     if (!user) return;
@@ -41,26 +42,16 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
     
     setIsDeleting(true);
     try {
-      // 1. Delete transaction
+      // Delete transaction - Backend will handle balance reversal
       const response = await fetch(`/api/transactions/${deletingTx.id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Fail to delete');
-
-      // 2. Update account balance (Local logic)
-      const account = accounts.find(a => a.id === deletingTx.accountId);
-      if (account) {
-        const newBalance = (account.balance || 0) - deletingTx.netAmount;
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...account, balance: newBalance })
-        });
-      }
 
       setDeletingTx(null);
       fetchTransactions();
       if (onUpdate) onUpdate();
     } catch (err) {
       console.error(err);
+      alert('Gagal menghapus transaksi.');
     } finally {
       setIsDeleting(false);
     }
@@ -252,6 +243,16 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
                     <button
                        onClick={(e) => {
                          e.stopPropagation();
+                         setReceiptTx(tx);
+                       }}
+                       className="p-2 text-slate-200 hover:text-blue-600 transition-all opacity-0 group-hover:opacity-100"
+                       title="Cetak Struk"
+                    >
+                      <Share2 size={16} />
+                    </button>
+                    <button
+                       onClick={(e) => {
+                         e.stopPropagation();
                          setDeletingTx(tx);
                        }}
                        className="p-2 text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
@@ -302,6 +303,72 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
                     {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Receipt Modal */}
+      <AnimatePresence>
+        {receiptTx && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+             <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 40 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 40 }}
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-[320px] overflow-hidden flex flex-col"
+            >
+              <div className="bg-slate-900 p-6 text-white flex items-center justify-between">
+                 <div>
+                    <h3 className="font-black text-sm uppercase tracking-tighter">Struk Digital</h3>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{receiptTx.type.replace('_', ' ')}</p>
+                 </div>
+                 <button onClick={() => setReceiptTx(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
+                    <X size={16} />
+                 </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                 <div className="text-center space-y-1">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nominal Transaksi</p>
+                    <p className="text-3xl font-black text-slate-900">{formatCurrency(receiptTx.amount)}</p>
+                 </div>
+
+                 <div className="space-y-3 pt-4 border-t border-dashed border-slate-200">
+                    <div className="flex justify-between items-center text-[10px]">
+                       <span className="font-bold text-slate-400 uppercase tracking-widest text-[8px]">Pelanggan</span>
+                       <span className="font-black text-slate-900 uppercase">{receiptTx.customerName || '-'}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px]">
+                       <span className="font-bold text-slate-400 uppercase tracking-widest text-[8px]">Status</span>
+                       <span className="font-black text-green-600 bg-green-50 px-2 py-0.5 rounded uppercase">Berhasil</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px]">
+                       <span className="font-bold text-slate-400 uppercase tracking-widest text-[8px]">Waktu</span>
+                       <span className="font-black text-slate-900 uppercase">{format(safeParseDate(receiptTx.timestamp), 'd MMM yyyy HH:mm', { locale: idLocale })}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px]">
+                       <span className="font-bold text-slate-400 uppercase tracking-widest text-[8px]">No. Reff</span>
+                       <span className="font-black text-slate-900 uppercase truncate max-w-[120px]">{receiptTx.id}</span>
+                    </div>
+                 </div>
+
+                 <div className="pt-6 text-center">
+                    <p className="text-[9px] font-black italic text-slate-400 uppercase tracking-widest">Terima kasih atas kepercayaan Anda</p>
+                    <p className="text-[8px] font-bold text-blue-500 mt-1 uppercase tracking-widest">Layanan Kasir Pintar</p>
+                 </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 flex gap-2">
+                 <button className="flex-1 bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-white transition-all shadow-sm">
+                    <Printer size={14} />
+                    <span>Cetak</span>
+                 </button>
+                 <button className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">
+                    <Share2 size={14} />
+                    <span>Bagikan</span>
+                 </button>
               </div>
             </motion.div>
           </div>

@@ -61,6 +61,19 @@ service cloud.firestore {
              data.keys().size() >= 7;
     }
 
+    function isValidDebt(data) {
+      return data.userId == request.auth.uid &&
+             data.customerName is string && data.customerName.size() > 0 &&
+             data.amount is number &&
+             data.remainingAmount is number &&
+             data.status in ['unpaid', 'partially_paid', 'paid'] &&
+             data.createdAt is timestamp &&
+             (!('dueDate' in data) || data.dueDate is timestamp) &&
+             (!('note' in data) || data.note is string) &&
+             data.keys().hasAll(['userId', 'customerName', 'amount', 'remainingAmount', 'status', 'createdAt']) &&
+             data.keys().size() >= 6;
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
@@ -76,7 +89,14 @@ service cloud.firestore {
     // Transactions collection
     match /transactions/{transactionId} {
       allow list, get: if isOwner(resource.data.userId);
-      allow create: if isOwner(incoming().userId);
+      allow create: if isOwner(incoming().userId) && isValidTransaction(incoming());
+      allow update, delete: if isOwner(resource.data.userId);
+    }
+
+    // Debts collection
+    match /debts/{debtId} {
+      allow list, get: if isOwner(resource.data.userId);
+      allow create: if isOwner(incoming().userId) && isValidDebt(incoming());
       allow update, delete: if isOwner(resource.data.userId);
     }
   }
