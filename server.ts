@@ -185,6 +185,12 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.delete("/api/accounts/:id", (req, res) => {
+    const stmt = db.prepare("DELETE FROM accounts WHERE id = ?");
+    stmt.run(req.params.id);
+    res.json({ success: true });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

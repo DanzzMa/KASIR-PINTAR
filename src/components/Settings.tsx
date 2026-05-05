@@ -84,13 +84,17 @@ export default function Settings({ user, accounts, isInitialSetup, onUpdate }: S
     if (!deletingAcc) return;
     setLoading(true);
     try {
-      // We'll need a delete endpoint for accounts too, but for now we skip or add it
-      // For now, let's just make it a "soft delete" or not implemented yet.
-      // Actually, I'll add a generic accounts delete endpoint in server.ts
+      const response = await fetch(`/api/accounts/${deletingAcc.id}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) throw new Error('Gagal menghapus akun');
+
       setDeletingAcc(null);
-      alert('Fitur hapus akun belum tersedia di versi lokal ini.');
+      onUpdate();
     } catch (err) {
       console.error(err);
+      alert('Gagal menghapus rekening.');
     } finally {
       setLoading(false);
     }
