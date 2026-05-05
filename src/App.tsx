@@ -130,14 +130,14 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="max-w-[1400px] mx-auto p-4 md:p-8 md:pt-10">
+      <main className="max-w-[1280px] mx-auto p-4 md:p-6 lg:p-8">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
           >
             {renderContent()}
           </motion.div>

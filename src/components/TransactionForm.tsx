@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { TransactionType, Account } from '../types';
-import { PlusCircle, Wallet, ArrowDownCircle, ArrowUpCircle, Smartphone, Receipt, Info, Gamepad2, Repeat, ArrowRightCircle, TrendingDown } from 'lucide-react';
+import { PlusCircle, Wallet, ArrowDownCircle, ArrowUpCircle, Smartphone, Receipt, Info, Gamepad2, Repeat, ArrowRightCircle, TrendingDown, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 import { formatNumber, getCleanNumber, formatCurrency } from '../lib/format';
@@ -43,6 +43,8 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
       }
     }
   }, [accounts]);
+
+  const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -162,36 +164,98 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
 
   return (
     <div className="max-w-4xl mx-auto pb-10">
-      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Simpan Transaksi</h2>
-          <p className="text-slate-500 text-xs font-medium">Input data transaksi dengan cepat dan akurat.</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">Simpan Transaksi</h2>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Input data transaksi dengan cepat dan akurat.</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Type Selector - More Compact */}
-        <div className="bg-white p-3 rounded-[2rem] border border-slate-100 shadow-sm flex gap-2 overflow-x-auto scrollbar-hide">
-          {types.map((t) => {
-            const Icon = t.icon;
-            const active = type === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setType(t.id as TransactionType)}
+        {/* Type Selector - High Quality Custom Dropdown */}
+        <div className="bg-white p-3 md:p-4 rounded-[1.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
+          <div className="flex items-center gap-3 px-2">
+            <div className={clsx(
+              "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+              types.find(t => t.id === type)?.bg || "bg-slate-50"
+            )}>
+              {(() => {
+                const ActiveIcon = types.find(t => t.id === type)?.icon || Info;
+                return <ActiveIcon className={clsx("w-5 h-5", types.find(t => t.id === type)?.color || "text-slate-400")} />;
+              })()}
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Tipe Transaksi</p>
+              <h3 className="text-sm font-black text-slate-900 uppercase">
+                {types.find(t => t.id === type)?.label}
+              </h3>
+            </div>
+          </div>
+          
+          <div className="relative flex-1 max-w-xs ml-auto">
+            <button
+              type="button"
+              onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+              className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-black text-[11px] uppercase tracking-wider flex items-center justify-between group"
+            >
+              <span>GANTI TIPE</span>
+              <ChevronDown 
                 className={clsx(
-                  "px-4 py-3 rounded-2xl border-2 transition-all flex items-center gap-3 shrink-0",
-                  active 
-                    ? `${t.border} ${t.bg} shadow-sm` 
-                    : "bg-white border-transparent hover:bg-slate-50 text-slate-500"
-                )}
-              >
-                <Icon className={clsx("w-5 h-5", active ? t.color : "text-slate-400")} />
-                <span className={clsx("text-xs font-black uppercase tracking-tight", active ? "text-slate-900" : "")}>{t.label}</span>
-              </button>
-            )
-          })}
+                  "text-slate-400 transition-transform duration-200",
+                  isTypeDropdownOpen ? "rotate-180" : ""
+                )} 
+                size={16} 
+              />
+            </button>
+
+            <AnimatePresence>
+              {isTypeDropdownOpen && (
+                <>
+                  {/* Backdrop to close */}
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setIsTypeDropdownOpen(false)} 
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    transition={{ duration: 0.15, ease: "easeOut" }}
+                    className="absolute right-0 top-full mt-2 w-full min-w-[240px] bg-white border border-slate-100 rounded-2xl shadow-2xl shadow-slate-200/50 z-50 p-2 overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto scrollbar-hide">
+                      {types.map((t) => {
+                        const Icon = t.icon;
+                        const active = type === t.id;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              setType(t.id as TransactionType);
+                              setIsTypeDropdownOpen(false);
+                            }}
+                            className={clsx(
+                              "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left",
+                              active ? `${t.bg} border-l-4 ${t.border}` : "hover:bg-slate-50 border-l-4 border-transparent"
+                            )}
+                          >
+                            <div className={clsx("w-8 h-8 rounded-lg flex items-center justify-center", active ? "bg-white" : t.bg)}>
+                              <Icon size={16} className={t.color} />
+                            </div>
+                            <div>
+                               <p className={clsx("text-xs font-black uppercase tracking-tight", active ? "text-slate-900" : "text-slate-600")}>{t.label}</p>
+                               {active && <p className="text-[9px] font-bold text-slate-400">Sedang Dipilih</p>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -207,12 +271,12 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Nominal Utama</label>
                     <div className="relative">
-                      <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-300">Rp</span>
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-300">Rp</span>
                       <input
                         type="text"
                         value={amount}
                         onChange={(e) => setAmount(formatNumber(e.target.value))}
-                        className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-black text-2xl text-slate-900"
+                        className="w-full pl-11 pr-5 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-black text-xl text-slate-900"
                         placeholder="0"
                         required
                       />

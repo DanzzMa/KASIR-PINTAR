@@ -92,17 +92,17 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
     <div className="space-y-6 pb-20 md:pb-0">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Riwayat</h2>
-          <p className="text-slate-500 text-xs font-medium">Monitoring arus kas harian Anda.</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">Riwayat</h2>
+          <p className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Monitoring arus kas harian Anda.</p>
         </div>
         <div className="relative flex-1 md:max-w-md">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
             placeholder="Cari transaksi..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-sm shadow-sm"
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-xs shadow-sm"
           />
         </div>
       </div>
@@ -236,17 +236,15 @@ export default function Transactions({ user, accounts, onUpdate }: { user: any, 
                     <div className="text-right shrink-0">
                        <p className={clsx(
                           "font-black text-sm",
-                          tx.netAmount > 0 ? "text-green-600" : (tx.netAmount < 0 ? "text-red-600" : "text-slate-900")
+                          (tx.profit ?? 0) > 0 ? "text-blue-600" : "text-slate-400"
                         )}>
-                          {tx.netAmount > 0 ? '+' : (tx.netAmount < 0 ? '-' : '')}{formatCurrency(tx.amount)}
+                          + {formatCurrency(tx.profit ?? 0)}
                        </p>
-                       <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                          <span className="text-[9px] font-bold text-slate-300 uppercase">Laba:</span>
-                          <span className={clsx(
-                            "text-[10px] font-black",
-                            (tx.profit ?? 0) > 0 ? "text-blue-500" : "text-slate-400"
-                          )}>
-                            {formatCurrency(tx.profit ?? 0)}
+                       <p className="text-[9px] font-bold text-slate-400 leading-none">Net Laba</p>
+                       <div className="flex items-center justify-end gap-1.5 mt-1 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Nominal:</span>
+                          <span className="text-[10px] font-black text-slate-600">
+                            {formatCurrency(tx.amount)}
                           </span>
                        </div>
                     </div>

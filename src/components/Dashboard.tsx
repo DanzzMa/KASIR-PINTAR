@@ -45,7 +45,7 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
 
   const getProfitToday = () => {
      return transactionsToday.reduce((acc, tx) => {
-       const profit = tx.profit !== undefined ? tx.profit : ((tx.fee || 0) - (tx.feeExternal || 0));
+       const profit = tx.profit != null ? tx.profit : ((tx.fee || 0) - (tx.feeExternal || 0));
        return acc + profit;
      }, 0);
   };
@@ -60,72 +60,72 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
   };
 
   return (
-    <div className="space-y-6 pb-20 md:pb-0">
+    <div className="space-y-4 pb-20 md:pb-0">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Halo, {user?.displayName || 'Pengguna'}!</h2>
-          <p className="text-slate-500 text-xs font-medium">{format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })}</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">Halo, {user?.displayName || 'Pengguna'}!</h2>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">{format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })}</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm">
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Saldo Gabungan</p>
-             <p className="text-lg font-black text-blue-600 leading-none">{formatCurrency(totalBalance)}</p>
+          <div className="bg-white px-3 py-1.5 rounded-xl border border-slate-100 shadow-sm">
+             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Saldo Gabungan</p>
+             <p className="text-base font-black text-blue-600 leading-none">{formatCurrency(totalBalance)}</p>
           </div>
           <button 
             onClick={() => onNavigate('add')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-2xl flex items-center gap-2 font-bold shadow-lg shadow-blue-100 transition-all active:scale-95"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-blue-100 transition-all active:scale-95"
           >
-            <Plus size={18} />
-            <span className="text-xs">TRANSAKSI</span>
+            <Plus size={16} />
+            <span className="text-[11px]">TRANSAKSI</span>
           </button>
         </div>
       </div>
 
       {/* Bento Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
         {/* Main Stats Bento */}
-        <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
-              <TrendingUp size={20} />
+        <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+              <TrendingUp size={18} />
             </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Fee Hari Ini</p>
-            <p className="text-xl font-black text-slate-900">{formatCurrency(getProfitToday())}</p>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Untung Hari Ini</p>
+            <p className="text-lg font-black text-blue-600">{formatCurrency(getProfitToday())}</p>
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm">
-            <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center mb-3">
-              <History size={20} />
+          <div className="bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm">
+            <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center mb-2">
+              <History size={18} />
             </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Aktivitas</p>
-            <p className="text-xl font-black text-slate-900 font-mono">{recentTransactions.length} <span className="text-[10px] font-bold text-slate-400">TRX</span></p>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Aktivitas</p>
+            <p className="text-lg font-black text-slate-900 font-mono">{recentTransactions.length} <span className="text-[9px] font-bold text-slate-400">TRX</span></p>
           </div>
 
-          <div className="bg-slate-900 p-5 rounded-[2rem] text-white shadow-xl shadow-blue-900/10 sm:col-span-2 lg:col-span-1">
-             <div className="flex items-center justify-between mb-3">
-                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
-                  <Smartphone size={16} />
+          <div className="bg-slate-900 p-4 rounded-[1.5rem] text-white shadow-xl shadow-blue-900/10 sm:col-span-2 lg:col-span-1">
+             <div className="flex items-center justify-between mb-2">
+                <div className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center">
+                  <Smartphone size={14} />
                 </div>
-                <span className="text-[8px] font-black uppercase text-slate-500">Live Status</span>
+                <span className="text-[7px] font-black uppercase text-slate-500">Live Status</span>
              </div>
-             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Kesehatan Arus</p>
-             <p className="text-xl font-black">OPTIMAL</p>
+             <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Kesehatan Arus</p>
+             <p className="text-lg font-black uppercase tracking-tight">Optimal</p>
           </div>
         </div>
 
         {/* Account Quick Glance */}
-        <div className="md:col-span-4 bg-white rounded-[2rem] border border-slate-100 shadow-sm p-5 space-y-3">
-           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Ringkasan Akun</h3>
-           <div className="space-y-2 overflow-y-auto max-h-[160px] scrollbar-hide">
+        <div className="md:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-sm p-4 space-y-2">
+           <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">Ringkasan Akun</h3>
+           <div className="space-y-1.5 overflow-y-auto max-h-[140px] scrollbar-hide">
               {accounts.map(acc => (
-                <div key={acc.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
+                <div key={acc.id} className="flex items-center justify-between p-1.5 rounded-lg bg-slate-50 border border-slate-100">
                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded bg-white flex items-center justify-center text-slate-400">
+                      <div className="w-5 h-5 rounded bg-white flex items-center justify-center text-slate-400">
                         {getAccountIcon(acc.type)}
                       </div>
-                      <span className="text-[10px] font-bold text-slate-600 truncate max-w-[80px]">{acc.name}</span>
+                      <span className="text-[9px] font-bold text-slate-600 truncate max-w-[80px]">{acc.name}</span>
                    </div>
-                   <span className="text-[11px] font-black text-slate-900 font-mono">{formatCurrency(acc.balance)}</span>
+                   <span className="text-[10px] font-black text-slate-900 font-mono">{formatCurrency(acc.balance)}</span>
                 </div>
               ))}
            </div>
@@ -155,19 +155,28 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <p className="font-bold text-slate-900 text-sm truncate">{tx.customerName || (tx.type === 'transfer_bank' ? 'Kirim Uang' : tx.type.replace('_', ' ').toUpperCase())}</p>
-                    <p className={clsx(
-                      "font-black text-sm",
-                      (tx.profit || 0) > 0 ? "text-blue-600" : ((tx.profit || 0) < 0 ? "text-red-600" : "text-slate-900")
-                    )}>
-                      {(tx.profit || 0) > 0 ? '+' : ''}{formatCurrency(tx.profit || 0)}
-                    </p>
+                    <div className="text-right">
+                       <p className={clsx(
+                         "font-black text-sm",
+                         ((tx.profit ?? ((tx.fee || 0) - (tx.feeExternal || 0)))) > 0 ? "text-blue-600" : "text-slate-400"
+                       )}>
+                         + {formatCurrency(tx.profit ?? ((tx.fee || 0) - (tx.feeExternal || 0)))}
+                       </p>
+                       <p className="text-[9px] font-bold text-slate-400 leading-none">Net Laba</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
-                    <span className="uppercase">{tx.type.replace('_', ' ')}</span>
-                    <span>•</span>
-                    <span>{tx.timestamp ? format(safeParseDate(tx.timestamp), 'HH:mm') : ''}</span>
-                    <span>•</span>
-                    <span className="text-slate-500 font-bold">{accounts.find(a => a.id === tx.accountId)?.name}</span>
+                  <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+                      <span className="uppercase">{tx.type.replace('_', ' ')}</span>
+                      <span>•</span>
+                      <span>{tx.timestamp ? format(safeParseDate(tx.timestamp), 'HH:mm') : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">Nominal:</span>
+                      <span className="text-[10px] font-black text-slate-600">
+                        {formatCurrency(tx.amount)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>

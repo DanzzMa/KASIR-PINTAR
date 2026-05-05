@@ -72,6 +72,7 @@ db.exec(`
     amount REAL,
     fee REAL,
     feeExternal REAL,
+    profit REAL,
     netAmount REAL,
     netImpact REAL,
     cashImpact REAL,
@@ -81,6 +82,14 @@ db.exec(`
     createdAt TEXT
   );
 `);
+
+// Migration: Add profit column if it doesn't exist
+try {
+  db.prepare("ALTER TABLE transactions ADD COLUMN profit REAL").run();
+  console.log("Migration: Added profit column to transactions table");
+} catch (err) {
+  // Column might already exist
+}
 
 async function startServer() {
   const app = express();
@@ -165,14 +174,14 @@ async function startServer() {
     const stmt = db.prepare(`
       INSERT INTO transactions (
         id, userId, accountId, toAccountId, cashAccountId, type, 
-        amount, fee, feeExternal, netAmount, netImpact, cashImpact, 
+        amount, fee, feeExternal, profit, netAmount, netImpact, cashImpact, 
         note, paymentStatus, timestamp, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       id, t.userId, t.accountId, t.toAccountId || null, t.cashAccountId || null, t.type,
-      t.amount || 0, t.fee || 0, t.feeExternal || 0, t.netAmount || 0, t.netImpact || 0, t.cashImpact || 0,
+      t.amount || 0, t.fee || 0, t.feeExternal || 0, t.profit || 0, t.netAmount || 0, t.netImpact || 0, t.cashImpact || 0,
       t.note || "", t.paymentStatus || "success", t.timestamp || createdAt, createdAt
     );
 
