@@ -1,0 +1,16 @@
+{
+  "name": "Kasir Pintar",
+  "short_name": "KasirPintar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/ios-filled/512/2563eb/cash-register.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

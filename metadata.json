@@ -1,6 +1,6 @@
 {
-  "name": "KasPintar - Transaksi & PPOB",
-  "description": "Aplikasi pencatatan transaksi tarik tunai, setor tunai, topup, dan PPOB dengan fitur laporan otomatis dan manajemen saldo.",
+  "name": "Kasir Pintar - Mobile Edition",
+  "description": "Aplikasi manajemen transaksi kasir dengan antarmuka mobile-native (WebView style). Mendukung pencatatan transaksi, PPOB, dan manajemen saldo secara realtime.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

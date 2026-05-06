@@ -18,9 +18,22 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
-  body {
+  html, body {
     @apply bg-slate-50 text-slate-900;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
+}
+
+#root {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .glass-card {
