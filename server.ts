@@ -701,6 +701,32 @@ async function startServer() {
     }
   });
 
+  // Reset and Delete All active/historical transactions for userId
+  app.post("/api/transactions/reset-all", (req, res) => {
+    try {
+      const { userId, mode } = req.body;
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+
+      db.transaction(() => {
+        // Delete all transactions of this user
+        db.prepare("DELETE FROM transactions WHERE userId = ?").run(userId);
+
+        if (mode === 'restore_initial') {
+          // Restore accounts to initial balance registration
+          db.prepare("UPDATE accounts SET balance = initialBalance WHERE userId = ?").run(userId);
+        } else if (mode === 'keep_current') {
+          // Set initial balance of all accounts to match current balance
+          db.prepare("UPDATE accounts SET initialBalance = balance WHERE userId = ?").run(userId);
+        }
+      })();
+
+      res.json({ success: true, mode });
+    } catch (err: any) {
+      console.error("Error resetting all transactions:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Data Management
   app.get("/api/db/export", (req, res) => {
     try {

@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect, useRef, ChangeEvent } from 'react';
 import { Account, AccountType } from '../types';
-import { Save, Wallet, Plus, Trash2, CreditCard, Landmark, Smartphone, Edit2, X, Download, Upload, ShieldCheck, Send, Database as DbIcon, Activity } from 'lucide-react';
+import { Save, Wallet, Plus, Trash2, CreditCard, Landmark, Smartphone, Edit2, X, Download, Upload, ShieldCheck, Send, Database as DbIcon, Activity, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 import { formatNumber, getCleanNumber, formatCurrency } from '../lib/format';
@@ -22,6 +22,11 @@ export default function Settings({ user, accounts, isInitialSetup, onUpdate }: S
   const [editingAcc, setEditingAcc] = useState<Account | null>(null);
   const [deletingAcc, setDeletingAcc] = useState<Account | null>(null);
   const [editedBalance, setEditedBalance] = useState('');
+
+  // Reset Transactions States
+  const [showResetTxModal, setShowResetTxModal] = useState(false);
+  const [resetTxMode, setResetTxMode] = useState<'restore_initial' | 'keep_current'>('keep_current');
+  const [resetTxLoading, setResetTxLoading] = useState(false);
 
   // Telegram & Data States
   const [tgToken, setTgToken] = useState('');
@@ -288,6 +293,35 @@ export default function Settings({ user, accounts, isInitialSetup, onUpdate }: S
     }
   };
 
+  const handleResetTransactions = async () => {
+    if (!user?.id) return;
+    setResetTxLoading(true);
+    try {
+      const res = await fetch('/api/transactions/reset-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          mode: resetTxMode
+        })
+      });
+
+      if (res.ok) {
+        setShowResetTxModal(false);
+        onUpdate();
+        alert('Semua transaksi berhasil dihapus & di-reset!');
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Gagal meriset transaksi.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan saat meriset transaksi.');
+    } finally {
+      setResetTxLoading(false);
+    }
+  };
+
   const accTypes: {id: AccountType, label: string, icon: any}[] = [
     { id: 'cash', label: 'Tunai / Cash', icon: Wallet },
     { id: 'bank', label: 'Bank / BRI / BCA', icon: Landmark },
@@ -470,6 +504,16 @@ Local seting                       <h3 className="text-[10px] font-black text-sl
                     <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleImport} />
                  </div>
                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl font-bold text-[9px] text-red-300">Impor data bersifat permanen & menimpa data lama!</div>
+                  <div className="border-t border-white/5 pt-4">
+                     <button 
+                       type="button"
+                       onClick={() => setShowResetTxModal(true)} 
+                       className="w-full bg-red-650/20 hover:bg-red-600/30 border border-red-500/30 text-red-200 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 group"
+                     >
+                        <Trash2 size={14} className="text-red-400 group-hover:scale-110 transition-transform" />
+                        <span>Reset Semua Transaksi</span>
+                     </button>
+                  </div>
               </motion.div>
 
               <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 md:col-span-2">
@@ -535,6 +579,113 @@ Local seting                       <h3 className="text-[10px] font-black text-sl
                 <div className="flex gap-3"><button onClick={() => setDeletingAcc(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-black text-[10px] uppercase">BATAL</button>
                   <button onClick={handleDeleteAccount} disabled={loading} className="flex-1 bg-red-600 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase disabled:opacity-50">YA, HAPUS</button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showResetTxModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 p-6 space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 bg-red-100 text-red-600 rounded-xl flex items-center justify-center shrink-0">
+                  <AlertTriangle size={22} className="animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase">Reset Transaksi</h4>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">Hapus semua histori transaksi aktif.</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-2 text-red-800">
+                <p className="text-[10px] font-black uppercase">⚠️ Peringatan Kredensial & Risiko:</p>
+                <p className="text-[9px] font-medium leading-relaxed">
+                  Tindakan ini akan menghapus semua histori transaksi Anda di sistem secara permanen. Silakan pilih bagaimana saldo rekening saat ini akan ditangani:
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block pl-1">Opsi Penanganan Saldo</label>
+                
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setResetTxMode('keep_current')}
+                    className={clsx(
+                      "w-full p-4 rounded-xl border text-left flex items-start gap-3 transition-all",
+                      resetTxMode === 'keep_current' 
+                        ? "border-blue-500 bg-blue-50/50" 
+                        : "border-slate-150 hover:bg-slate-50"
+                    )}
+                  >
+                    <input 
+                      type="radio" 
+                      checked={resetTxMode === 'keep_current'} 
+                      onChange={() => setResetTxMode('keep_current')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-[11px] font-black text-slate-900 uppercase">Gunakan Saldo Saat Ini</p>
+                      <p className="text-[9px] text-slate-550 font-medium">Histori transaksi dihapus, saldo saat ini tetap disimpan & dijadikan modal awal baru.</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setResetTxMode('restore_initial')}
+                    className={clsx(
+                      "w-full p-4 rounded-xl border text-left flex items-start gap-3 transition-all",
+                      resetTxMode === 'restore_initial' 
+                        ? "border-blue-500 bg-blue-50/50" 
+                        : "border-slate-150 hover:bg-slate-50"
+                    )}
+                  >
+                    <input 
+                      type="radio" 
+                      checked={resetTxMode === 'restore_initial'} 
+                      onChange={() => setResetTxMode('restore_initial')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-[11px] font-black text-slate-900 uppercase">Kembalikan Saldo Asal</p>
+                      <p className="text-[9px] text-slate-550 font-medium">Histori transaksi dihapus, saldo rekening dikembalikan ke modal awal pendaftaran.</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowResetTxModal(false)}
+                  disabled={resetTxLoading}
+                  className="flex-1 py-3 bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-100 transition-all disabled:opacity-50"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetTransactions}
+                  disabled={resetTxLoading}
+                  className="flex-1 py-3 bg-red-650 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-1 shadow-lg shadow-red-500/20 transition-all disabled:opacity-50"
+                >
+                  {resetTxLoading ? (
+                    <RefreshCw size={12} className="animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 size={12} />
+                      <span>Hapus Semua</span>
+                    </>
+                  )}
+                </button>
               </div>
             </motion.div>
           </div>
