@@ -71,7 +71,7 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
       // Fetch Debts
       const debtResponse = await fetch(`/api/debts?userId=${user.id}`);
       const debtData = await debtResponse.json();
-      const unpaid = debtData.reduce((acc: number, d: any) => acc + (d.remainingAmount || 0), 0);
+      const unpaid = debtData.reduce((acc: number, d: any) => acc + (d.status !== 'paid' ? (d.remainingAmount || 0) : 0), 0);
       setTotalDebts(unpaid);
     } catch (err) {
       console.error(err);
@@ -323,10 +323,12 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
           
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <p className="text-4xl font-black tracking-tight mb-1">{displayCurrency(totalBalance)}</p>
+              <p className="text-4xl font-black tracking-tight mb-1">{displayCurrency(totalBalance + totalDebts)}</p>
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Akun Terhubung & Aktif</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+                  Kas: {displayCurrency(totalBalance)} | Piutang: {displayCurrency(totalDebts)}
+                </p>
               </div>
             </div>
             
