@@ -479,10 +479,10 @@ export default function Settings({ user, accounts, isInitialSetup, onUpdate }: S
 
            {/* Data Management & Backup */}
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 space-y-4">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 space-y-4">
                  <div className="flex items-center justify-between mb-2">
                     <div>
-Local seting                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Backup Otomatis</h3>
+                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Backup Otomatis</h3>
                        <p className="text-xs font-black text-slate-900 uppercase">Bot Telegram</p>
                     </div>
                     <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><Send size={18} /></div>
@@ -504,7 +504,7 @@ Local seting                       <h3 className="text-[10px] font-black text-sl
                  </form>
               </motion.div>
 
-              <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl space-y-6">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.05 }} className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl space-y-6">
                  <div className="flex items-center justify-between">
                     <div>
                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Manajemen Data</h3>
@@ -536,7 +536,7 @@ Local seting                       <h3 className="text-[10px] font-black text-sl
                   </div>
               </motion.div>
 
-              <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 md:col-span-2">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.1 }} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 md:col-span-2">
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                        <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center"><DbIcon size={18} /></div>
