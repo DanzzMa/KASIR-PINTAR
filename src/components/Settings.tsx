@@ -107,6 +107,25 @@ export default function Settings({ user, accounts, isInitialSetup, onUpdate }: S
     }
   };
 
+  const handleTestReportNow = async () => {
+    if (!tgToken || !tgChatId || !user?.id) return alert('Atur Token & Chat ID Telegram dulu!');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/db/report/telegram-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: tgToken, chatId: tgChatId, userId: user.id })
+      });
+      if (res.ok) alert('Laporan mutasi berhasil dikirim ke Telegram!');
+      else alert('Gagal mengirim laporan mutasi.');
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan saat mengirim laporan mutasi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       const res = await fetch('/api/db/export');
@@ -479,7 +498,8 @@ Local seting                       <h3 className="text-[10px] font-black text-sl
                     </div>
                     <div className="flex gap-2 pt-2">
                        <button type="submit" className="flex-1 bg-slate-100 text-slate-900 py-2.5 rounded-xl font-black text-[10px] uppercase">Simpan Bot</button>
-                       <button type="button" onClick={handleBackupNow} disabled={loading} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-2 shadow-lg shadow-blue-100"><Send size={14} /> Test Backup</button>
+                       <button type="button" onClick={handleBackupNow} disabled={loading} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-lg"><Send size={12} /> Test Backup</button>
+                       <button type="button" onClick={handleTestReportNow} disabled={loading} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-black text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-lg"><Activity size={12} /> Test Laporan</button>
                     </div>
                  </form>
               </motion.div>

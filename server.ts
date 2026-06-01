@@ -182,6 +182,191 @@ async function sendToTelegram(token: string, chatId: string, text: string, filen
   }
 }
 
+// Helper to send beautiful, html-safe daily transaction mutation, revenue and expense summaries
+async function sendDailyMutationReport(userId: string, token: string, chatId: string) {
+  // Get user info
+  const user = db.prepare("SELECT id, email, displayName FROM users WHERE id = ?").get(userId) as any;
+  const displayName = user ? user.displayName : userId;
+
+  // Get active accounts for balance
+  const accounts = db.prepare("SELECT * FROM accounts WHERE userId = ?").all(userId) as any[];
+
+  // Get all transactions for today in Jakarta timezone
+  const allTxs = db.prepare("SELECT * FROM transactions WHERE userId = ?").all(userId) as any[];
+  
+  const jakartaTodayStr = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta' }).format(new Date());
+
+  const todayTxs = allTxs.filter((tx: any) => {
+    if (!tx.timestamp) return false;
+    try {
+      const txDate = new Date(tx.timestamp);
+      if (isNaN(txDate.getTime())) return false;
+      const txJakartaStr = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta' }).format(txDate);
+      return txJakartaStr === jakartaTodayStr;
+    } catch {
+      return false;
+    }
+  });
+
+  // Calculate totals
+  let totalVolume = 0;
+  let totalProfit = 0;
+  let totalExpense = 0;
+  let txCount = 0;
+
+  const typeCounts: Record<string, number> = {};
+  const typeVolume: Record<string, number> = {};
+  const typeProfit: Record<string, number> = {};
+
+  todayTxs.forEach((tx: any) => {
+    const amount = tx.amount || 0;
+    const profit = tx.profit !== undefined && tx.profit !== null ? tx.profit : (tx.type === 'expense' ? -amount : ((tx.fee || 0) - (tx.feeExternal || 0)));
+
+    txCount++;
+    typeCounts[tx.type] = (typeCounts[tx.type] || 0) + 1;
+
+    if (tx.type === 'expense') {
+      totalExpense += amount;
+    } else {
+      typeVolume[tx.type] = (typeVolume[tx.type] || 0) + amount;
+      
+      // Calculate volumes for business volume (excluding transfers / adjustments)
+      if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment', 'transfer'].includes(tx.type)) {
+        totalVolume += amount;
+      }
+
+      // Calculate profits (excluding non-business and adjustments)
+      if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment'].includes(tx.type)) {
+        totalProfit += profit;
+        typeProfit[tx.type] = (typeProfit[tx.type] || 0) + profit;
+      }
+    }
+  });
+
+  // Get human readable service names
+  const serviceLabels: Record<string, string> = {
+    tarik_tunai: "Tarik Tunai 💵",
+    setor_tunai: "Setor Tunai 🏦",
+    topup: "Top Up E-Wallet 📱",
+    ppob: "Tagihan PPOB 🔌",
+    topup_game: "Top Up Game 🎮",
+    transfer_bank: "Transfer Bank 🏛️",
+    transfer: "Transfer Sesama 💸",
+    adjustment: "Penyesuaian Saldo ⚙️"
+  };
+
+  const formattedDate = new Date().toLocaleDateString('id-ID', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'Asia/Jakarta'
+  });
+
+  const escapeHtml = (unsafe: string) => {
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  };
+
+  const formatRupiah = (num: number) => {
+    return "Rp" + Math.round(num).toLocaleString("id-ID");
+  };
+
+  let message = `📊 <b>LAPORAN MUTASI HARIAN</b> 📊\n`;
+  message += `👤 <b>Kasir:</b> ${escapeHtml(displayName)}\n`;
+  message += `📅 <b>Tanggal:</b> ${formattedDate}\n`;
+  message += `⏰ <b>Waktu Cetak:</b> 18:00 WIB\n\n`;
+
+  message += `📈 <b>RINGKASAN UTAMA</b>\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `🔹 <b>Qty Transaksi:</b> ${txCount} TRX\n`;
+  message += `🔹 <b>Volume Penjualan:</b> ${formatRupiah(totalVolume)}\n`;
+  message += `🔹 <b>Keuntungan Layanan:</b> ${formatRupiah(totalProfit)}\n`;
+  message += `🔸 <b>Total Pengeluaran:</b> ${formatRupiah(totalExpense)}\n`;
+  message += `💵 <b>Estimasi Laba Bersih:</b> <b>${formatRupiah(totalProfit - totalExpense)}</b>\n\n`;
+
+  message += `🛍️ <b>RINCIAN PER LAYANAN</b>\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  
+  const activeTypes = Object.keys(typeCounts).filter(t => t !== 'expense');
+  if (activeTypes.length === 0) {
+    message += `<i>Tidak ada transaksi produk/layanan hari ini</i>\n\n`;
+  } else {
+    activeTypes.forEach((type) => {
+      const count = typeCounts[type] || 0;
+      const vol = typeVolume[type] || 0;
+      const prof = typeProfit[type] || 0;
+      const label = serviceLabels[type] || type.toUpperCase();
+      message += `📌 <b>${label}</b>\n`;
+      message += `   • Jumlah: ${count} TRX\n`;
+      message += `   • Volume: ${formatRupiah(vol)}\n`;
+      if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment'].includes(type) && !type.includes('transfer')) {
+        message += `   • Laba: ${formatRupiah(prof)}\n`;
+      }
+      message += `\n`;
+    });
+  }
+
+  if (totalExpense > 0) {
+    message += `💸 <b>DAFTAR PENGELUARAN</b>\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    const expenseTxs = todayTxs.filter((tx: any) => tx.type === 'expense');
+    expenseTxs.forEach((tx: any, idx: number) => {
+      message += `${idx + 1}. <b>${formatRupiah(tx.amount)}</b> - <i>${escapeHtml(tx.note || 'Tanpa catatan')}</i>\n`;
+    });
+    message += `\n`;
+  }
+
+  message += `🏦 <b>SALDO AKHIR REKENING</b>\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  if (accounts.length === 0) {
+    message += `<i>Belum ada rekening terdaftar</i>\n`;
+  } else {
+    accounts.forEach((acc: any) => {
+      message += `• <b>${escapeHtml(acc.name)}</b>: ${formatRupiah(acc.balance)}\n`;
+    });
+  }
+
+  message += `\n🤖 <i>Laporan otomatis dikirim setiap hari jam 18:00 WIB</i>`;
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
+  });
+  return res.json();
+}
+
+// --- Penjadwalan Laporan Mutasi Telegram (Setiap Hari jam 18:00 WIB) ---
+cron.schedule('0 18 * * *', async () => {
+  try {
+    // Ambil semua user yang punya token telegram
+    const usersWithTg = db.prepare("SELECT DISTINCT userId FROM settings WHERE key = 'telegram_token' AND value IS NOT NULL AND value != ''").all();
+
+    for (const userRow of usersWithTg as any[]) {
+      const userId = userRow.userId;
+      const settingsRows = db.prepare("SELECT * FROM settings WHERE userId = ?").all(userId);
+      const settings: any = {};
+      settingsRows.forEach((s: any) => settings[s.key] = s.value);
+
+      const token = settings.telegram_token;
+      const chatId = settings.telegram_chat_id;
+
+      if (token && chatId) {
+        console.log(`[Scheduled-Mutation] Mengirim mutasi harian otomatis ke Telegram untuk user: ${userId}...`);
+        await sendDailyMutationReport(userId, token, chatId);
+      }
+    }
+  } catch (err) {
+    console.error('[Scheduled-Mutation] Gagal mengirim mutasi harian otomatis:', err);
+  }
+}, { timezone: "Asia/Jakarta" });
+
 // Migration: Add profit column if it doesn't exist
 try {
   db.prepare("ALTER TABLE transactions ADD COLUMN profit REAL").run();
@@ -813,6 +998,19 @@ async function startServer() {
 
       res.json({ success: true, result });
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/db/report/telegram-test", async (req, res) => {
+    const { token, chatId, userId } = req.body;
+    if (!token || !chatId || !userId) return res.status(400).json({ error: "Token, Chat ID, and userId diperlukan" });
+
+    try {
+      const result = await sendDailyMutationReport(userId, token, chatId);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      console.error("Gagal mengirim tes laporan mutasi ke Telegram:", err);
       res.status(500).json({ error: err.message });
     }
   });
