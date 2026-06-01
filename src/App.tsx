@@ -12,17 +12,18 @@ import TransactionForm from './components/TransactionForm';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
 import Debts from './components/Debts';
-import { LayoutGrid, ListOrdered, PlusCircle, FileBarChart, Settings as SettingsIcon, LogOut, Wallet, Users } from 'lucide-react';
+import { LayoutGrid, ListOrdered, PlusCircle, FileBarChart, Settings as SettingsIcon, LogOut, Wallet, Users, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useAuth } from './components/AuthProvider';
+import BookkeepingView from './components/BookkeepingView';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type Tab = 'dashboard' | 'transactions' | 'debts' | 'add' | 'reports' | 'settings';
+type Tab = 'dashboard' | 'transactions' | 'debts' | 'add' | 'reports' | 'bookkeeping' | 'settings';
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth();
@@ -107,6 +108,8 @@ export default function App() {
         return <TransactionForm user={user} accounts={accounts} onComplete={() => { fetchAccounts(); setActiveTab('dashboard'); }} />;
       case 'reports':
         return <Reports user={user} accounts={accounts} />;
+      case 'bookkeeping':
+        return <BookkeepingView user={user} accounts={accounts} onUpdateAccounts={fetchAccounts} />;
       case 'settings':
         return <Settings user={user} accounts={accounts} isInitialSetup={accounts.length === 0} onUpdate={fetchAccounts} />;
       default:
@@ -139,6 +142,7 @@ export default function App() {
             <NavItem icon={Users} label="Piutang" active={activeTab === 'debts'} onClick={() => setActiveTab('debts')} />
             <NavItem icon={PlusCircle} label="Transaksi" active={activeTab === 'add'} onClick={() => setActiveTab('add')} />
             <NavItem icon={FileBarChart} label="Laporan" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
+            <NavItem icon={BookOpen} label="Buku Harian" active={activeTab === 'bookkeeping'} onClick={() => setActiveTab('bookkeeping')} />
             <NavItem icon={SettingsIcon} label="Sistem" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
           </nav>
 
@@ -178,7 +182,7 @@ export default function App() {
         <nav className="h-16 bg-white/80 border border-white/20 backdrop-blur-md rounded-[2.5rem] shadow-xl shadow-blue-100/50 flex items-center justify-around px-4">
           <MobileNavItem icon={LayoutGrid} active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <MobileNavItem icon={ListOrdered} active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
-          <MobileNavItem icon={Users} active={activeTab === 'debts'} onClick={() => setActiveTab('debts')} />
+          <MobileNavItem icon={BookOpen} active={activeTab === 'bookkeeping'} onClick={() => setActiveTab('bookkeeping')} />
           <button 
             onClick={() => setActiveTab('add')}
             className={clsx(
@@ -188,6 +192,7 @@ export default function App() {
           >
             <PlusCircle size={24} />
           </button>
+          <MobileNavItem icon={Users} active={activeTab === 'debts'} onClick={() => setActiveTab('debts')} />
           <MobileNavItem icon={FileBarChart} active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
           <MobileNavItem icon={SettingsIcon} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
         </nav>

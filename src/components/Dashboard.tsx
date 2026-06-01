@@ -30,6 +30,7 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
   const [bookkeepingTotalBalance, setBookkeepingTotalBalance] = useState('');
   const [bookkeepingNote, setBookkeepingNote] = useState('');
   const [bookkeepingSaving, setBookkeepingSaving] = useState(false);
+  const [bookkeepingAccountBalances, setBookkeepingAccountBalances] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -88,9 +89,31 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
     const today = format(new Date(), 'yyyy-MM-dd');
     setBookkeepingDate(today);
     setBookkeepingSession(sessionType);
+    
+    // Initialize account balances with their actual current balances from the template
+    const initialAccBals: Record<string, string> = {};
+    accounts.forEach(acc => {
+      initialAccBals[acc.id] = String(acc.balance);
+    });
+    setBookkeepingAccountBalances(initialAccBals);
     setBookkeepingTotalBalance(String(totalBalance));
     setBookkeepingNote('');
     setShowBookkeepingModal(true);
+  };
+
+  const handleBookkeepingAccountBalanceChange = (accountId: string, rawVal: string) => {
+    setBookkeepingAccountBalances(prev => {
+      const updated = { ...prev, [accountId]: rawVal };
+      
+      const total = accounts.reduce((acc, curr) => {
+        const valStr = updated[curr.id] || "0";
+        const numericVal = parseFloat(valStr.replace(/[^0-9.-]+/g, "")) || 0;
+        return acc + numericVal;
+      }, 0);
+      
+      setBookkeepingTotalBalance(String(total));
+      return updated;
+    });
   };
 
   const handleSaveBookkeeping = async (e: React.FormEvent) => {
@@ -103,12 +126,20 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
       const parsedBalance = parseFloat(cleanVal);
       const finalBalance = isNaN(parsedBalance) ? totalBalance : parsedBalance;
       
+      const detailsPayload: Record<string, number> = {};
+      accounts.forEach(acc => {
+        const strVal = bookkeepingAccountBalances[acc.id] || "0";
+        const clean = strVal.replace(/[^0-9.-]+/g, "");
+        detailsPayload[acc.id] = parseFloat(clean) || 0;
+      });
+
       const payload = {
         userId: user.id,
         date: bookkeepingDate,
         session: bookkeepingSession,
         totalBalance: finalBalance,
-        note: bookkeepingNote
+        note: bookkeepingNote,
+        details: JSON.stringify(detailsPayload)
       };
 
       const response = await fetch('/api/bookkeeping', {
@@ -471,6 +502,30 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
                     </button>
                   </div>
                 </div>
+
+                {rec.details && (
+                  <div className="bg-slate-50/70 rounded-xl p-2.5 text-[9px] space-y-1 border border-slate-100 mt-1">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                      {(() => {
+                        try {
+                          const parsed = JSON.parse(rec.details);
+                          return Object.entries(parsed).map(([accId, bal]) => {
+                            const accName = accounts.find(a => a.id === accId)?.name || 'Akun Lain';
+                            return (
+                              <div key={accId} className="flex justify-between items-center text-slate-500 min-w-0">
+                                <span className="truncate mr-1">{accName}</span>
+                                <span className="font-bold font-mono text-slate-700 shrink-0">Rp {formatCurrency(Number(bal))}</span>
+                              </div>
+                            );
+                          });
+                        } catch (e) {
+                          return null;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
                 {rec.note && <p className="text-[10px] text-slate-500 pl-1 italic border-l-2 border-slate-200">{rec.note}</p>}
                 <p className="text-[8px] text-slate-400 text-right">Dicatat {format(new Date(rec.timestamp), 'HH:mm • dd/MM')}</p>
               </div>
@@ -547,23 +602,49 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
                   </div>
                 </div>
 
-                {/* Total Balance Field */}
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Total Saldo Seluruh Akun (Buku)</label>
-                  <div className="relative group">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400 uppercase">Rp</span>
-                    <input 
-                      type="text"
-                      required
-                      value={bookkeepingTotalBalance}
-                      onChange={(e) => setBookkeepingTotalBalance(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-black text-base text-slate-800"
-                    />
+                {/* Individual Pocket Account Balance Inputs */}
+                <div className="space-y-2 border-t border-slate-100 pt-4">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-2">Input Saldo Setiap Rekening Aktif</label>
+                  <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1 scrollbar-hide">
+                    {accounts.map((acc) => {
+                      const val = bookkeepingAccountBalances[acc.id] !== undefined ? bookkeepingAccountBalances[acc.id] : '';
+                      return (
+                        <div key={acc.id} className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl group transition-all hover:bg-slate-50/80">
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-slate-800 truncate leading-tight">{acc.name}</p>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                              Sistem: Rp {formatCurrency(acc.balance)}
+                            </p>
+                          </div>
+                          
+                          <div className="relative shrink-0 w-32">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rp</span>
+                            <input 
+                              type="text"
+                              required
+                              value={val}
+                              onChange={(e) => handleBookkeepingAccountBalanceChange(acc.id, e.target.value)}
+                              placeholder="0"
+                              className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 focus:border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 font-black text-xs text-right text-slate-800"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="text-[10.5px] text-slate-400 mt-1 block leading-tight">
-                    Nilai otomatis dihitung dari total saldo gabungan seluruh akun saat ini: 
-                    <span className="font-bold text-slate-600 ml-1">Rp {formatCurrency(totalBalance)}</span>
-                  </p>
+                </div>
+
+                {/* Calculated Total Balance Cards */}
+                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 flex items-center justify-between mt-3">
+                  <div>
+                    <h5 className="text-[10px] font-black text-blue-700 uppercase tracking-wider mb-1">Total Saldo Hasil Hitung</h5>
+                    <p className="text-[9px] text-slate-400 font-bold">Gabungan otomatis seluruh nominal.</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-black font-mono text-blue-700">
+                      Rp {formatCurrency(parseFloat(bookkeepingTotalBalance) || 0)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Optional Note */}

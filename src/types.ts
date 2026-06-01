@@ -63,4 +63,5 @@ export interface DailyBookkeeping {
   totalBalance: number;
   timestamp: string;
   note?: string;
+  details?: string;
 }

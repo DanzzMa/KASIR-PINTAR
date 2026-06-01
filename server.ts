@@ -154,7 +154,8 @@ db.exec(`
     session TEXT,
     totalBalance REAL,
     timestamp TEXT,
-    note TEXT
+    note TEXT,
+    details TEXT
   );
 `);
 
@@ -210,12 +211,21 @@ try {
       session TEXT,
       totalBalance REAL,
       timestamp TEXT,
-      note TEXT
+      note TEXT,
+      details TEXT
     );
   `);
   console.log("Migration: Created daily_bookkeeping table if not exists");
 } catch (err) {
   // Already exists
+}
+
+// Migration: Add details column to daily_bookkeeping if it doesn't exist
+try {
+  db.prepare("ALTER TABLE daily_bookkeeping ADD COLUMN details TEXT").run();
+  console.log("Migration: Added details column to daily_bookkeeping table");
+} catch (err) {
+  // Column might already exist
 }
 
 async function startServer() {
@@ -532,17 +542,17 @@ async function startServer() {
       if (existing) {
         const stmt = db.prepare(`
           UPDATE daily_bookkeeping 
-          SET totalBalance = ?, timestamp = ?, note = ? 
+          SET totalBalance = ?, timestamp = ?, note = ?, details = ? 
           WHERE id = ?
         `);
-        stmt.run(b.totalBalance || 0, timestamp, b.note || "", existing.id);
+        stmt.run(b.totalBalance || 0, timestamp, b.note || "", b.details || null, existing.id);
         res.json({ id: existing.id, ...b, timestamp });
       } else {
         const stmt = db.prepare(`
-          INSERT INTO daily_bookkeeping (id, userId, date, session, totalBalance, timestamp, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO daily_bookkeeping (id, userId, date, session, totalBalance, timestamp, note, details)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(recordId, b.userId, b.date, b.session, b.totalBalance || 0, timestamp, b.note || "");
+        stmt.run(recordId, b.userId, b.date, b.session, b.totalBalance || 0, timestamp, b.note || "", b.details || null);
         res.json({ id: recordId, ...b, timestamp });
       }
     } catch (err: any) {
