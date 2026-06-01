@@ -228,6 +228,25 @@ try {
   // Column might already exist
 }
 
+// Migration: Ensure monthly_reports table exists
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS monthly_reports (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      month TEXT,
+      totalVolume REAL,
+      totalProfit REAL,
+      transactionCount INTEGER,
+      details TEXT,
+      createdAt TEXT
+    );
+  `);
+  console.log("Migration: Created monthly_reports table if not exists");
+} catch (err) {
+  // Already exists
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
@@ -571,10 +590,121 @@ async function startServer() {
     }
   });
 
+  // Monthly Reports: Get
+  app.get("/api/monthly-reports", (req, res) => {
+    try {
+      const userId = req.query.userId;
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+      const stmt = db.prepare("SELECT * FROM monthly_reports WHERE userId = ? ORDER BY month DESC");
+      const reports = stmt.all(userId);
+      res.json(reports);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Monthly Reports: Reset / Archive & Clear
+  app.post("/api/monthly-reports/reset", (req, res) => {
+    try {
+      const { userId, month } = req.body;
+      if (!userId || !month) {
+        return res.status(400).json({ error: "userId and month are required" });
+      }
+
+      // Check for transactions belonging to this user in this month
+      const txsStmt = db.prepare("SELECT * FROM transactions WHERE userId = ?");
+      const allTxs = txsStmt.all(userId);
+      const targetTxs = allTxs.filter((tx: any) => tx.timestamp && tx.timestamp.startsWith(month));
+
+      if (targetTxs.length === 0) {
+        return res.status(400).json({ error: `Tidak ada transaksi aktif yang ditemukan untuk bulan ${month}` });
+      }
+
+      // Compute summaries
+      let totalVolume = 0;
+      let totalProfit = 0;
+      const count = targetTxs.length;
+      
+      const byType: Record<string, number> = {};
+      const feeByType: Record<string, number> = {};
+      const byAccount: Record<string, number> = {};
+
+      targetTxs.forEach((tx: any) => {
+        const profit = tx.profit !== undefined && tx.profit !== null ? tx.profit : (tx.type === 'expense' ? -(tx.amount || 0) : ((tx.fee || 0) - (tx.feeExternal || 0)));
+        
+        if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment', 'transfer'].includes(tx.type)) {
+          totalVolume += (tx.amount || 0);
+        }
+        
+        if (!['transfer_in', 'cash_in', 'cash_out', 'adjustment'].includes(tx.type)) {
+          totalProfit += profit;
+          feeByType[tx.type] = (feeByType[tx.type] || 0) + profit;
+        }
+        
+        if (!['transfer_in', 'cash_in', 'cash_out'].includes(tx.type)) {
+          byType[tx.type] = (byType[tx.type] || 0) + (tx.amount || 0);
+        }
+        if (tx.accountId) {
+          byAccount[tx.accountId] = (byAccount[tx.accountId] || 0) + (tx.amount || 0);
+        }
+      });
+
+      const details = {
+        byType,
+        feeByType,
+        byAccount,
+        archivedAt: new Date().toISOString()
+      };
+
+      db.transaction(() => {
+        const reportId = `${userId}_${month}`;
+        const insertStmt = db.prepare(`
+          INSERT OR REPLACE INTO monthly_reports (id, userId, month, totalVolume, totalProfit, transactionCount, details, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        insertStmt.run(
+          reportId,
+          userId,
+          month,
+          totalVolume,
+          totalProfit,
+          count,
+          JSON.stringify(details),
+          new Date().toISOString()
+        );
+
+        const deleteStmt = db.prepare("DELETE FROM transactions WHERE id = ?");
+        targetTxs.forEach((tx: any) => {
+          deleteStmt.run(tx.id);
+        });
+
+        // Set initialBalance to current balance for starting monthly cash
+        const updateAccountStmt = db.prepare("UPDATE accounts SET initialBalance = balance WHERE userId = ?");
+        updateAccountStmt.run(userId);
+      })();
+
+      res.json({ success: true, month, totalVolume, totalProfit, transactionCount: count });
+    } catch (err: any) {
+      console.error("Failed to perform monthly reset:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Monthly Reports: Delete an archive entry
+  app.delete("/api/monthly-reports/:id", (req, res) => {
+    try {
+      const stmt = db.prepare("DELETE FROM monthly_reports WHERE id = ?");
+      stmt.run(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Data Management
   app.get("/api/db/export", (req, res) => {
     try {
-      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
+      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping", "monthly_reports"];
       const backup: any = {};
       tables.forEach(table => {
         backup[table] = db.prepare(`SELECT * FROM ${table}`).all();
@@ -587,7 +717,7 @@ async function startServer() {
 
   app.post("/api/db/import", (req, res) => {
     const data = req.body;
-    const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
+    const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping", "monthly_reports"];
     
     try {
       db.transaction(() => {
@@ -616,7 +746,7 @@ async function startServer() {
 
   app.get("/api/db/status", (req, res) => {
     try {
-      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
+      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping", "monthly_reports"];
       const stats = tables.map(table => ({
         table,
         count: db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get().count
