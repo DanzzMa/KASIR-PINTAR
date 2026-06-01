@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Transaction, Account } from '../types';
-import { Wallet, ArrowUpRight, ArrowDownLeft, Plus, TrendingUp, Landmark, Smartphone, CreditCard, TrendingDown, History, Clock, Calendar, Eye, EyeOff } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Wallet, ArrowUpRight, ArrowDownLeft, Plus, TrendingUp, Landmark, Smartphone, CreditCard, TrendingDown, History, Clock, Calendar, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfDay, isAfter } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { clsx } from 'clsx';
@@ -22,12 +22,34 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
   const [showBalances, setShowBalances] = useState(true);
   const [totalVolume, setTotalVolume] = useState(0);
 
+  // Daily Bookkeeping States
+  const [bookkeepingRecords, setBookkeepingRecords] = useState<any[]>([]);
+  const [showBookkeepingModal, setShowBookkeepingModal] = useState(false);
+  const [bookkeepingDate, setBookkeepingDate] = useState('');
+  const [bookkeepingSession, setBookkeepingSession] = useState<'pagi' | 'sore'>('pagi');
+  const [bookkeepingTotalBalance, setBookkeepingTotalBalance] = useState('');
+  const [bookkeepingNote, setBookkeepingNote] = useState('');
+  const [bookkeepingSaving, setBookkeepingSaving] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const totalBalance = accounts.reduce((acc, curr) => acc + curr.balance, 0);
+
+  const fetchBookkeeping = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/bookkeeping?userId=${user.id}`);
+      const data = await response.json();
+      setBookkeepingRecords(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Gagal memuat catatan pembukuan:", err);
+    }
+  };
 
   const fetchData = async () => {
     if (!user) return;
@@ -59,9 +81,72 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
 
   useEffect(() => {
     fetchData();
+    fetchBookkeeping();
   }, [user?.id]);
 
-  const totalBalance = accounts.reduce((acc, curr) => acc + curr.balance, 0);
+  const handleOpenBookkeeping = (sessionType: 'pagi' | 'sore') => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    setBookkeepingDate(today);
+    setBookkeepingSession(sessionType);
+    setBookkeepingTotalBalance(String(totalBalance));
+    setBookkeepingNote('');
+    setShowBookkeepingModal(true);
+  };
+
+  const handleSaveBookkeeping = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBookkeepingSaving(true);
+    try {
+      // Remove any non-numeric formatting if edited
+      const cleanVal = bookkeepingTotalBalance.replace(/[^0-9.-]+/g, "");
+      const parsedBalance = parseFloat(cleanVal);
+      const finalBalance = isNaN(parsedBalance) ? totalBalance : parsedBalance;
+      
+      const payload = {
+        userId: user.id,
+        date: bookkeepingDate,
+        session: bookkeepingSession,
+        totalBalance: finalBalance,
+        note: bookkeepingNote
+      };
+
+      const response = await fetch('/api/bookkeeping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        await fetchBookkeeping();
+        setShowBookkeepingModal(false);
+      } else {
+        const err = await response.json();
+        alert("Gagal menyimpan pembukuan: " + (err.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error("Error saving bookkeeping:", err);
+      alert("Terjadi kesalahan saat menyimpan pembukuan.");
+    } finally {
+      setBookkeepingSaving(false);
+    }
+  };
+
+  const handleDeleteBookkeeping = async (id: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus catatan pembukuan ini?")) return;
+    try {
+      const response = await fetch(`/api/bookkeeping/${id}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await fetchBookkeeping();
+      } else {
+        alert("Gagal menghapus catatan.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const displayCurrency = (value: number) => {
     return (
@@ -89,6 +174,14 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
       default: return <CreditCard size={18} />;
     }
   };
+
+  const todayDateStr = format(currentTime, 'yyyy-MM-dd');
+  const pagiLogged = bookkeepingRecords.some(r => r.date === todayDateStr && r.session === 'pagi');
+  const soreLogged = bookkeepingRecords.some(r => r.date === todayDateStr && r.session === 'sore');
+  const isAfternoon = currentTime.getHours() >= 12;
+
+  const pendingNotificationPagi = !pagiLogged;
+  const pendingNotificationSore = !soreLogged && isAfternoon;
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
@@ -129,6 +222,55 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
           </button>
         </div>
       </div>
+
+      {/* Notification Panel for Daily Bookkeeping */}
+      {(pendingNotificationPagi || pendingNotificationSore) && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-amber-50 border border-amber-200 rounded-[2rem] p-5 text-amber-900 shadow-sm relative overflow-hidden"
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+                <Clock size={20} />
+              </div>
+              <div>
+                <h4 className="font-black text-xs uppercase tracking-wider text-amber-800">PERINGATAN PEMBUKUAN HARIAN</h4>
+                <p className="text-xs text-amber-700 font-medium mt-0.5">
+                  {pendingNotificationPagi && pendingNotificationSore && (
+                    "Pembukuan pagi dan sore hari ini belum dicatat!"
+                  )}
+                  {pendingNotificationPagi && !pendingNotificationSore && (
+                    "Pembukuan pagi hari ini belum dicatat! Segera catat saldo awal kasir Anda."
+                  )}
+                  {!pendingNotificationPagi && pendingNotificationSore && (
+                    "Pembukuan sore hari ini belum dicatat! Segera kunci saldo akhir kasir Anda."
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {pendingNotificationPagi && (
+                <button
+                  onClick={() => handleOpenBookkeeping('pagi')}
+                  className="flex-1 sm:flex-initial bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-amber-300"
+                >
+                  Catat Pagi
+                </button>
+              )}
+              {pendingNotificationSore && (
+                <button
+                  onClick={() => handleOpenBookkeeping('sore')}
+                  className="flex-1 sm:flex-initial bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-blue-300"
+                >
+                  Catat Sore
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Total Saldo Card - High Visualization */}
       <motion.div 
@@ -233,7 +375,7 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Recent Activity List */}
-        <div className="lg:col-span-12">
+        <div className="lg:col-span-7 xl:col-span-8">
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Aktivitas Terakhir</h3>
             <button onClick={() => onNavigate('transactions')} className="text-[11px] font-black text-indigo-600 hover:underline uppercase">Lihat Full</button>
@@ -287,7 +429,177 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
             )}
           </div>
         </div>
+
+        {/* Daily Bookkeeping Logs */}
+        <div className="lg:col-span-5 xl:col-span-4">
+          <div className="flex items-center justify-between mb-4 px-2">
+            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Buku Harian</h3>
+            <button 
+              onClick={() => handleOpenBookkeeping(currentTime.getHours() < 12 ? 'pagi' : 'sore')}
+              className="text-[11px] font-black text-blue-600 hover:underline uppercase flex items-center gap-1"
+            >
+              <Plus size={12} /> CATAT BARU
+            </button>
+          </div>
+
+          <div className="bg-white/70 backdrop-blur-sm rounded-[1.5rem] border border-slate-100 shadow-sm p-4 space-y-3 max-h-[400px] overflow-y-auto scrollbar-hide">
+            {bookkeepingRecords.map((rec) => (
+              <div key={rec.id} className="p-3 bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl transition-all relative group flex flex-col gap-2 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={clsx(
+                      "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider",
+                      rec.session === 'pagi' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-sky-50 text-sky-700 border border-sky-200"
+                    )}>
+                      {rec.session}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500">
+                      {format(new Date(rec.date), 'dd MMM yyyy')}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-slate-900 font-mono">
+                      {displayCurrency(rec.totalBalance)}
+                    </span>
+                    <button 
+                      onClick={() => handleDeleteBookkeeping(rec.id)}
+                      className="text-slate-350 hover:text-red-500 transition-colors"
+                      title="Hapus"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+                {rec.note && <p className="text-[10px] text-slate-500 pl-1 italic border-l-2 border-slate-200">{rec.note}</p>}
+                <p className="text-[8px] text-slate-400 text-right">Dicatat {format(new Date(rec.timestamp), 'HH:mm • dd/MM')}</p>
+              </div>
+            ))}
+
+            {bookkeepingRecords.length === 0 && (
+              <div className="p-12 text-center flex flex-col items-center justify-center gap-2">
+                <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-350">
+                  <Calendar size={20} />
+                </div>
+                <p className="text-slate-400 font-medium text-xs">Belum ada catatan pembukuan.</p>
+                <button 
+                  onClick={() => handleOpenBookkeeping(currentTime.getHours() < 12 ? 'pagi' : 'sore')}
+                  className="mt-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-xl font-bold text-[10px] hover:bg-blue-100 transition-colors uppercase tracking-wider"
+                >
+                  Catat Sekarang
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Bookkeeping Dialog Modal */}
+      <AnimatePresence>
+        {showBookkeepingModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[2rem] shadow-2xl p-6 w-full max-w-md border border-slate-100 relative overflow-hidden"
+            >
+              <h3 className="text-lg font-black text-slate-900 mb-1">Pencatatan Buku Harian</h3>
+              <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider mb-6">Konsolidasi Total Saldo Seluruh Akun</p>
+
+              <form onSubmit={handleSaveBookkeeping} className="space-y-4">
+                {/* Date Input */}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Tanggal</label>
+                  <input 
+                    type="date"
+                    required
+                    value={bookkeepingDate}
+                    onChange={(e) => setBookkeepingDate(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm text-slate-800"
+                  />
+                </div>
+
+                {/* Session Toggle */}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Sesi Pembukuan (Pagi / Sore)</label>
+                  <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setBookkeepingSession('pagi')}
+                      className={clsx(
+                        "flex-1 py-2 text-xs font-black rounded-lg transition-all uppercase",
+                        bookkeepingSession === 'pagi' ? "bg-white text-amber-600 shadow-sm border border-slate-100" : "text-slate-500"
+                      )}
+                    >
+                      Pagi (Awal)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBookkeepingSession('sore')}
+                      className={clsx(
+                        "flex-1 py-2 text-xs font-black rounded-lg transition-all uppercase",
+                        bookkeepingSession === 'sore' ? "bg-white text-blue-600 shadow-sm border border-slate-100" : "text-slate-500"
+                      )}
+                    >
+                      Sore (Akhir)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Total Balance Field */}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Total Saldo Seluruh Akun (Buku)</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400 uppercase">Rp</span>
+                    <input 
+                      type="text"
+                      required
+                      value={bookkeepingTotalBalance}
+                      onChange={(e) => setBookkeepingTotalBalance(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-black text-base text-slate-800"
+                    />
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 mt-1 block leading-tight">
+                    Nilai otomatis dihitung dari total saldo gabungan seluruh akun saat ini: 
+                    <span className="font-bold text-slate-600 ml-1">Rp {formatCurrency(totalBalance)}</span>
+                  </p>
+                </div>
+
+                {/* Optional Note */}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block mb-1">Catatan Tambahan (Opsional)</label>
+                  <textarea 
+                    rows={2}
+                    value={bookkeepingNote}
+                    onChange={(e) => setBookkeepingNote(e.target.value)}
+                    placeholder="Contoh: Saldo sesuai laci kasir..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-350"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowBookkeepingModal(false)}
+                    className="flex-1 border border-slate-100 hover:bg-slate-50 text-slate-600 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bookkeepingSaving}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all disabled:opacity-50 shadow-md shadow-blue-100"
+                  >
+                    {bookkeepingSaving ? "Menyimpan..." : "Simpan Buku"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

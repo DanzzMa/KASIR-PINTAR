@@ -58,7 +58,7 @@ cron.schedule('0 0 * * *', async () => {
     if (token && chatId) {
       try {
         console.log(`[Auto-Backup] Menjalankan backup otomatis ke Telegram untuk user: ${userId}...`);
-        const tables = ["accounts", "transactions", "debts", "settings"];
+        const tables = ["accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
         const backup: any = {};
         
         // Data User itu sendiri
@@ -146,6 +146,16 @@ db.exec(`
     value TEXT,
     PRIMARY KEY (userId, key)
   );
+
+  CREATE TABLE IF NOT EXISTS daily_bookkeeping (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    date TEXT,
+    session TEXT,
+    totalBalance REAL,
+    timestamp TEXT,
+    note TEXT
+  );
 `);
 
 // Helper for Telegram Backup
@@ -189,6 +199,24 @@ tablesToMigrate.forEach(table => {
     // Column might already exist
   }
 });
+
+// Migration: Ensure daily_bookkeeping table exists
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_bookkeeping (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      date TEXT,
+      session TEXT,
+      totalBalance REAL,
+      timestamp TEXT,
+      note TEXT
+    );
+  `);
+  console.log("Migration: Created daily_bookkeeping table if not exists");
+} catch (err) {
+  // Already exists
+}
 
 async function startServer() {
   const app = express();
@@ -476,10 +504,67 @@ async function startServer() {
     }
   });
 
+  // Daily Bookkeeping: Get
+  app.get("/api/bookkeeping", (req, res) => {
+    try {
+      const userId = req.query.userId;
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+      const stmt = db.prepare("SELECT * FROM daily_bookkeeping WHERE userId = ? ORDER BY date DESC, session DESC");
+      const records = stmt.all(userId);
+      res.json(records);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Daily Bookkeeping: Add or Update
+  app.post("/api/bookkeeping", (req, res) => {
+    try {
+      const b = req.body;
+      if (!b.userId || !b.date || !b.session) {
+        return res.status(400).json({ error: "userId, date, and session are required" });
+      }
+      const recordId = b.id || Date.now().toString();
+      const timestamp = b.timestamp || new Date().toISOString();
+
+      const existing: any = db.prepare("SELECT id FROM daily_bookkeeping WHERE userId = ? AND date = ? AND session = ?").get(b.userId, b.date, b.session);
+      
+      if (existing) {
+        const stmt = db.prepare(`
+          UPDATE daily_bookkeeping 
+          SET totalBalance = ?, timestamp = ?, note = ? 
+          WHERE id = ?
+        `);
+        stmt.run(b.totalBalance || 0, timestamp, b.note || "", existing.id);
+        res.json({ id: existing.id, ...b, timestamp });
+      } else {
+        const stmt = db.prepare(`
+          INSERT INTO daily_bookkeeping (id, userId, date, session, totalBalance, timestamp, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(recordId, b.userId, b.date, b.session, b.totalBalance || 0, timestamp, b.note || "");
+        res.json({ id: recordId, ...b, timestamp });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Daily Bookkeeping: Delete
+  app.delete("/api/bookkeeping/:id", (req, res) => {
+    try {
+      const stmt = db.prepare("DELETE FROM daily_bookkeeping WHERE id = ?");
+      stmt.run(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Data Management
   app.get("/api/db/export", (req, res) => {
     try {
-      const tables = ["users", "accounts", "transactions", "debts", "settings"];
+      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
       const backup: any = {};
       tables.forEach(table => {
         backup[table] = db.prepare(`SELECT * FROM ${table}`).all();
@@ -492,7 +577,7 @@ async function startServer() {
 
   app.post("/api/db/import", (req, res) => {
     const data = req.body;
-    const tables = ["users", "accounts", "transactions", "debts", "settings"];
+    const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
     
     try {
       db.transaction(() => {
@@ -521,7 +606,7 @@ async function startServer() {
 
   app.get("/api/db/status", (req, res) => {
     try {
-      const tables = ["users", "accounts", "transactions", "debts", "settings"];
+      const tables = ["users", "accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
       const stats = tables.map(table => ({
         table,
         count: db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get().count
@@ -539,7 +624,7 @@ async function startServer() {
 
     try {
       // Export only user specific data
-      const tables = ["accounts", "transactions", "debts", "settings"];
+      const tables = ["accounts", "transactions", "debts", "settings", "daily_bookkeeping"];
       const backup: any = {};
       
       backup.profile = db.prepare("SELECT id, email, displayName FROM users WHERE id = ?").get(userId);

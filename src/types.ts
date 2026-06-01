@@ -54,3 +54,13 @@ export interface Debt {
   createdAt: string;
   note?: string;
 }
+
+export interface DailyBookkeeping {
+  id: string;
+  userId: string;
+  date: string;
+  session: 'pagi' | 'sore';
+  totalBalance: number;
+  timestamp: string;
+  note?: string;
+}
