@@ -450,28 +450,43 @@ async function startServer() {
 
   // Accounts: Add/Update
   app.post("/api/accounts", (req, res) => {
-    const account = req.body;
-    const id = account.id || Date.now().toString();
-    
-    const stmtCheck = db.prepare("SELECT id FROM accounts WHERE id = ? AND userId = ?");
-    const existing = stmtCheck.get(id, account.userId);
+    try {
+      const account = req.body;
+      const id = account.id || Date.now().toString();
+      const userId = account.userId;
+      
+      if (!userId) {
+        console.warn("[POST /api/accounts] Missing userId in request body");
+        return res.status(400).json({ error: "userId is required to add or update accounts" });
+      }
 
-    if (existing) {
-      const stmtUpdate = db.prepare(`
-        UPDATE accounts 
-        SET name = ?, type = ?, balance = ?, initialBalance = ? 
-        WHERE id = ? AND userId = ?
-      `);
-      stmtUpdate.run(account.name, account.type, account.balance, account.initialBalance, id, account.userId);
-    } else {
-      const stmtInsert = db.prepare(`
-        INSERT INTO accounts (id, userId, name, type, balance, initialBalance, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmtInsert.run(id, account.userId, account.name, account.type, account.balance, account.initialBalance, account.createdAt || new Date().toISOString());
+      console.log(`[POST /api/accounts] Processing account id: ${id}, userId: ${userId}, balance: ${account.balance}`);
+
+      const stmtCheck = db.prepare("SELECT id FROM accounts WHERE id = ? AND userId = ?");
+      const existing = stmtCheck.get(id, userId);
+
+      if (existing) {
+        console.log(`[POST /api/accounts] Updating existing account: ${id}`);
+        const stmtUpdate = db.prepare(`
+          UPDATE accounts 
+          SET name = ?, type = ?, balance = ?, initialBalance = ? 
+          WHERE id = ? AND userId = ?
+        `);
+        stmtUpdate.run(account.name, account.type, account.balance, account.initialBalance, id, userId);
+      } else {
+        console.log(`[POST /api/accounts] Inserting new account: ${id}`);
+        const stmtInsert = db.prepare(`
+          INSERT INTO accounts (id, userId, name, type, balance, initialBalance, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmtInsert.run(id, userId, account.name, account.type, account.balance, account.initialBalance, account.createdAt || new Date().toISOString());
+      }
+      
+      res.json({ ...account, id, userId });
+    } catch (err: any) {
+      console.error("[POST /api/accounts] Error:", err);
+      res.status(500).json({ error: err.message });
     }
-    
-    res.json({ ...account, id });
   });
 
   app.post("/api/auth/register", (req, res) => {

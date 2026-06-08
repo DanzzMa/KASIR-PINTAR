@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { TransactionType, Account } from '../types';
-import { PlusCircle, Wallet, ArrowDownCircle, ArrowUpCircle, Smartphone, Receipt, Info, Gamepad2, Repeat, ArrowRightCircle, TrendingDown, ChevronDown } from 'lucide-react';
+import { PlusCircle, Wallet, ArrowDownCircle, ArrowUpCircle, Smartphone, Receipt, Info, Gamepad2, Repeat, ArrowRightCircle, TrendingDown, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 import { formatNumber, getCleanNumber, formatCurrency } from '../lib/format';
@@ -29,6 +29,7 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed'>('success');
   const [loading, setLoading] = useState(false);
+  const [showWarningModal, setShowWarningModal] = useState(false);
 
   useEffect(() => {
     if (accounts.length > 0) {
@@ -46,10 +47,85 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
 
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
+  // Real-time validation logic
+  const getValidationDetails = () => {
+    if (!amount || !user) return { isInsufficient: false, details: [] };
+
+    const amt = parseFloat(getCleanNumber(amount)) || 0;
+    const f = parseFloat(getCleanNumber(fee)) || 0;
+    const fe = parseFloat(getCleanNumber(feeExternal)) || 0;
+
+    const details: { accountId: string; name: string; currentBalance: number; change: number; finalBalance: number; isInsufficient: boolean }[] = [];
+
+    // Calculate impacts
+    let netImpact = 0;
+    let cashImpact = 0;
+
+    if (type === 'transfer_bank') {
+      const nominalSent = feeMethod === 'added' ? amt : amt - f;
+      netImpact = -(nominalSent + fe);
+      cashImpact = feeMethod === 'added' ? amt + f : amt;
+    } else if (type === 'transfer') {
+      netImpact = feeMethod === 'added' ? -(amt + f + fe) : -amt;
+    } else if (type === 'expense') {
+      netImpact = -amt;
+    } else if (type === 'adjustment') {
+      netImpact = adjustmentMode === 'add' ? amt : -amt;
+    } else if (type === 'tarik_tunai') {
+      netImpact = amt - fe;
+      cashImpact = f - amt;
+    } else {
+      netImpact = feeMethod === 'added' ? -(amt + fe) : -(amt - f + fe);
+      cashImpact = feeMethod === 'added' ? amt + f : amt;
+    }
+
+    // 1. Digital/Primary Account (selectedAccountId)
+    if (selectedAccountId) {
+      const acc = accounts.find(a => a.id === selectedAccountId);
+      if (acc) {
+        const change = netImpact;
+        const finalBalance = acc.balance + change;
+        if (change < 0) {
+          details.push({
+            accountId: acc.id,
+            name: acc.name,
+            currentBalance: acc.balance,
+            change,
+            finalBalance,
+            isInsufficient: finalBalance < 0
+          });
+        }
+      }
+    }
+
+    // 2. Cash Account (selectedCashAccountId)
+    const needsCashAccount = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank'].includes(type);
+    if (needsCashAccount && selectedCashAccountId) {
+      const acc = accounts.find(a => a.id === selectedCashAccountId);
+      if (acc) {
+        const change = cashImpact;
+        const finalBalance = acc.balance + change;
+        if (change < 0) {
+          details.push({
+            accountId: acc.id,
+            name: acc.name,
+            currentBalance: acc.balance,
+            change,
+            finalBalance,
+            isInsufficient: finalBalance < 0
+          });
+        }
+      }
+    }
+
+    const isInsufficient = details.some(d => d.isInsufficient);
+    return { isInsufficient, details };
+  };
+
+  const handleSaveWithValidation = (e: FormEvent) => {
     e.preventDefault();
     if (!amount || !selectedAccountId || !user) return;
-    
+
     // For many transaction types, we really want a cash account selected
     const needsCashAccount = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank'].includes(type);
     if (needsCashAccount && !selectedCashAccountId) {
@@ -57,6 +133,15 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
       return;
     }
 
+    const { isInsufficient } = getValidationDetails();
+    if (isInsufficient) {
+      setShowWarningModal(true);
+    } else {
+      executeSubmit();
+    }
+  };
+
+  const executeSubmit = async () => {
     setLoading(true);
     try {
       const amt = parseFloat(getCleanNumber(amount)) || 0;
@@ -85,7 +170,9 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
         cashImpact = feeMethod === 'added' ? amt + f : amt;
       }
 
-      // 4. Save Transaction
+      const needsCashAccount = ['tarik_tunai', 'setor_tunai', 'topup', 'ppob', 'topup_game', 'transfer_bank'].includes(type);
+
+      // Save Transaction
       await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,6 +203,7 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
       console.error(err);
     } finally {
       setLoading(false);
+      setShowWarningModal(false);
     }
   };
 
@@ -134,6 +222,8 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
   const cashAccounts = accounts.filter(a => a.type === 'cash');
   const digitalAccounts = accounts.filter(a => a.type !== 'cash');
 
+  const { isInsufficient, details: validationDetails } = getValidationDetails();
+
   return (
     <div className="max-w-4xl mx-auto pb-10">
       <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -143,7 +233,7 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSaveWithValidation} className="space-y-6">
         {/* Type Selector - High Quality Custom Dropdown */}
         <div className="bg-white p-3 md:p-4 rounded-[1.5rem] border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           <div className="flex items-center gap-3 px-2">
@@ -521,7 +611,7 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
                   
                   <div className="space-y-3">
                     <p className="text-[10px] font-black text-slate-600 uppercase">Rangkuman Alur:</p>
-                    <div className="bg-indigo-500/10 p-4 rounded-2xl text-[11px] font-medium leading-relaxed text-slate-300">
+                    <div className="bg-indigo-500/10 p-4 rounded-2xl text-[11px] font-medium leading-relaxed text-slate-300 mb-4">
                       {type === 'tarik_tunai' 
                       ? (feeMethod === 'added'
                           ? `Pelanggan bayar ${formatCurrency(parseFloat(getCleanNumber(amount))||0)} digital & ${formatCurrency(parseFloat(getCleanNumber(fee))||0)} cash. Anda beri cash ${formatCurrency(parseFloat(getCleanNumber(amount))||0)}. Saldo digital sistem bertambah ${formatCurrency((parseFloat(getCleanNumber(amount))||0) - (parseFloat(getCleanNumber(feeExternal))||0))}.`
@@ -539,14 +629,29 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
                           : `Pelanggan bayar ${formatCurrency(parseFloat(getCleanNumber(amount))||0)} cash. Digital berkurang ${formatCurrency((parseFloat(getCleanNumber(amount))||0) - (parseFloat(getCleanNumber(fee))||0) + (parseFloat(getCleanNumber(feeExternal))||0))}.`)}
                     </div>
                   </div>
+
+                  {/* Inline live warning banner in sidebar */}
+                  {isInsufficient && (
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-start gap-2 text-amber-200 mb-4 animate-pulse">
+                      <Info size={14} className="shrink-0 mt-0.5 text-amber-400" />
+                      <div className="text-[10px] leading-normal font-bold">
+                        <p className="font-black uppercase tracking-wide text-amber-400 mb-1 text-xs">Peringatan: Saldo Tidak Mencukupi</p>
+                        {validationDetails.filter(d => d.isInsufficient).map(d => (
+                          <p key={d.accountId} className="mt-1">
+                            Saldo <span className="text-white underline">{d.name}</span> saat ini <span className="font-mono text-white">Rp {formatCurrency(d.currentBalance)}</span>. Transaksi ini akan menyebabkan saldo menjadi minus (<span className="font-mono text-red-300 font-extrabold">Rp {formatCurrency(d.finalBalance)}</span>).
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                </div>
 
                <button
                   type="submit"
                   disabled={loading}
-                  onClick={handleSubmit}
+                  onClick={handleSaveWithValidation}
                   className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl transition-all shadow-lg shadow-blue-900/20 font-black text-sm uppercase tracking-wider disabled:opacity-50"
-                >
+               >
                   {loading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
@@ -560,6 +665,81 @@ export default function TransactionForm({ user, accounts, onComplete }: Transact
           </div>
         </div>
       </form>
+
+      {/* Insufficient Balance warning modal */}
+      <AnimatePresence>
+        {showWarningModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }} 
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100"
+            >
+              <div className="p-5 bg-amber-500 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Info size={18} />
+                  <h3 className="text-xs font-black uppercase tracking-wider">Perhatian: Saldo Kurang</h3>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowWarningModal(false)} 
+                  className="text-white/80 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  Berdasarkan rincian transaksi, saldo rekening atau laci kas Anda akan menjadi <span className="font-extrabold text-red-600">minus (di bawah nol)</span> jika Anda menyimpan transaksi ini:
+                </p>
+                
+                <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 space-y-3 text-left">
+                  {validationDetails.filter(d => d.isInsufficient).map(d => (
+                    <div key={d.accountId} className="text-xs text-amber-900 space-y-1">
+                      <p className="font-black uppercase tracking-wider text-[10px] text-amber-700">Akun: {d.name}</p>
+                      <div className="grid grid-cols-2 gap-1 text-[11px] font-bold">
+                        <span className="text-slate-500 font-medium">Saldo Saat Ini:</span>
+                        <span className="font-mono text-right text-slate-800">Rp {formatCurrency(d.currentBalance)}</span>
+                        
+                        <span className="text-slate-500 font-medium">Pengurangan:</span>
+                        <span className="font-mono text-right text-red-600">-Rp {formatCurrency(Math.abs(d.change))}</span>
+                        
+                        <div className="col-span-2 my-1 h-px bg-amber-200"></div>
+                        
+                        <span className="text-amber-800">Saldo Akhir:</span>
+                        <span className="font-mono text-right text-red-700 font-black">Rp {formatCurrency(d.finalBalance)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
+                  Apakah Anda yakin ingin melanjutkan dan membiarkan pembukuan bersaldo minus?
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowWarningModal(false)} 
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="button" 
+                    disabled={loading}
+                    onClick={() => executeSubmit()} 
+                    className="w-full bg-amber-600 hover:bg-amber-500 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg shadow-amber-200/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    {loading ? 'Menyimpan...' : 'TETAP SIMPAN'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

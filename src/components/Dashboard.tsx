@@ -145,13 +145,18 @@ export default function Dashboard({ user, accounts, onNavigate, onUpdateAccounts
 
     setLoadingEdit(true);
     try {
-      await fetch('/api/accounts', {
+      const resAcc = await fetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...editingAcc, balance: newBal })
+        body: JSON.stringify({ ...editingAcc, userId: user.id, balance: newBal })
       });
 
-      await fetch('/api/transactions', {
+      if (!resAcc.ok) {
+        const errorData = await resAcc.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Gagal mengubah saldo akun');
+      }
+
+      const resTx = await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,14 +172,19 @@ export default function Dashboard({ user, accounts, onNavigate, onUpdateAccounts
         })
       });
 
+      if (!resTx.ok) {
+        const errorData = await resTx.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Gagal mencatat transaksi koreksi');
+      }
+
       setEditingAcc(null);
       if (onUpdateAccounts) {
         onUpdateAccounts();
       }
       await fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Gagal memperbarui saldo.');
+      alert(err.message || 'Gagal memperbarui saldo.');
     } finally {
       setLoadingEdit(false);
     }

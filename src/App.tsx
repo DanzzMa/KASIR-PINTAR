@@ -99,7 +99,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard user={user} accounts={accounts} onNavigate={setActiveTab} />;
+        return <Dashboard user={user} accounts={accounts} onNavigate={setActiveTab} onUpdateAccounts={fetchAccounts} />;
       case 'transactions':
         return <Transactions user={user} accounts={accounts} onUpdate={fetchAccounts} />;
       case 'debts':
@@ -113,7 +113,7 @@ export default function App() {
       case 'settings':
         return <Settings user={user} accounts={accounts} isInitialSetup={accounts.length === 0} onUpdate={fetchAccounts} />;
       default:
-        return <Dashboard user={user} accounts={accounts} onNavigate={setActiveTab} />;
+        return <Dashboard user={user} accounts={accounts} onNavigate={setActiveTab} onUpdateAccounts={fetchAccounts} />;
     }
   };
 
