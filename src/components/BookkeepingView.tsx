@@ -12,6 +12,7 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
   const [loading, setLoading] = useState(true);
   const [filterSession, setFilterSession] = useState<'all' | 'pagi' | 'sore'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [totalDebts, setTotalDebts] = useState(0);
   
   // Create / Edit Modal States
   const [showModal, setShowModal] = useState(false);
@@ -26,6 +27,18 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
   const totalAppBalance = useMemo(() => {
     return accounts.reduce((acc, curr) => acc + curr.balance, 0);
   }, [accounts]);
+
+  const fetchDebts = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/debts?userId=${user.id}`);
+      const data = await response.json();
+      const unpaid = data.reduce((acc: number, d: any) => acc + (d.status !== 'paid' ? (d.remainingAmount || 0) : 0), 0);
+      setTotalDebts(unpaid);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchRecords = async () => {
     if (!user) return;
@@ -43,6 +56,7 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
 
   useEffect(() => {
     fetchRecords();
+    fetchDebts();
   }, [user?.id]);
 
   const handleOpenAdd = (sessionType: 'pagi' | 'sore') => {
@@ -55,7 +69,7 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
       initialAccBals[acc.id] = String(acc.balance);
     });
     setAccountBalances(initialAccBals);
-    setBalanceVal(String(totalAppBalance));
+    setBalanceVal(String(totalAppBalance + totalDebts));
     setNoteVal('');
     setShowModal(true);
   };
@@ -100,7 +114,7 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
         return acc + numericVal;
       }, 0);
       
-      setBalanceVal(String(total));
+      setBalanceVal(String(total + totalDebts));
       return updated;
     });
   };
@@ -303,12 +317,12 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
             <Landmark size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Saldo Kasir Terkini</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Saldo Gabungan Terkini</p>
             <p className="text-base font-black text-white leading-tight">
-              Rp {formatCurrency(totalAppBalance)}
+              Rp {formatCurrency(totalAppBalance + totalDebts)}
             </p>
-            <p className="text-[8px] text-white/50 mt-0.5 font-black uppercase tracking-wider">
-              Gabungan Seluruh Rekening
+            <p className="text-[8px] text-white/50 mt-0.5 font-black uppercase tracking-wider leading-relaxed">
+              Kas: Rp {formatCurrency(totalAppBalance)} | Piutang: Rp {formatCurrency(totalDebts)}
             </p>
           </div>
         </div>
@@ -644,15 +658,30 @@ export default function BookkeepingView({ user, accounts, onUpdateAccounts }: { 
                 </div>
 
                 {/* Total Calculated Display Card */}
-                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 flex items-center justify-between mt-3">
-                  <div>
-                    <h5 className="text-[10px] font-black text-blue-700 uppercase tracking-wider mb-1">Total Saldo Hasil Hitung</h5>
-                    <p className="text-[9px] text-slate-400 font-bold">Otomatis diakumulasikan dari rincian rincian kasir.</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-sm font-black font-mono text-blue-700">
-                      Rp {formatCurrency(parseFloat(balanceVal) || 0)}
+                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 flex flex-col gap-2 mt-3 text-left">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                    <span>Kas & Rekening:</span>
+                    <span className="font-mono">
+                      Rp {formatCurrency((parseFloat(balanceVal) || 0) - totalDebts)}
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-600">
+                    <span>Total Piutang Aktif:</span>
+                    <span className="font-mono">
+                      Rp {formatCurrency(totalDebts)}
+                    </span>
+                  </div>
+                  <div className="w-full h-px bg-slate-200/50 my-1"></div>
+                  <div className="flex items-center justify-between text-blue-700 font-black">
+                    <div>
+                      <h5 className="text-[10px] uppercase tracking-wider">Total Hasil Hitung</h5>
+                      <p className="text-[8px] text-slate-400 font-bold">Kas + Piutang</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-sm font-black font-mono">
+                        Rp {formatCurrency(parseFloat(balanceVal) || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

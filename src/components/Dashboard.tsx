@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Account } from '../types';
-import { Wallet, ArrowUpRight, ArrowDownLeft, Plus, TrendingUp, Landmark, Smartphone, CreditCard, TrendingDown, History, Clock, Calendar, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownLeft, Plus, TrendingUp, Landmark, Smartphone, CreditCard, TrendingDown, History, Clock, Calendar, Eye, EyeOff, Trash2, Edit2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, startOfDay, isAfter } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { clsx } from 'clsx';
-import { formatCurrency, safeParseDate } from '../lib/format';
+import { formatCurrency, safeParseDate, formatNumber, getCleanNumber } from '../lib/format';
 
 interface DashboardProps {
   user: any;
   accounts: Account[];
   onNavigate: (tab: any) => void;
+  onUpdateAccounts?: () => void;
 }
 
-export default function Dashboard({ user, accounts, onNavigate }: DashboardProps) {
+export default function Dashboard({ user, accounts, onNavigate, onUpdateAccounts }: DashboardProps) {
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [transactionsToday, setTransactionsToday] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +22,11 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
   const [totalDebts, setTotalDebts] = useState(0);
   const [showBalances, setShowBalances] = useState(true);
   const [totalVolume, setTotalVolume] = useState(0);
+
+  // Edit Account Balance States
+  const [editingAcc, setEditingAcc] = useState<Account | null>(null);
+  const [editedBalance, setEditedBalance] = useState('');
+  const [loadingEdit, setLoadingEdit] = useState(false);
 
   // Daily Bookkeeping States
   const [bookkeepingRecords, setBookkeepingRecords] = useState<any[]>([]);
@@ -96,7 +102,7 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
       initialAccBals[acc.id] = String(acc.balance);
     });
     setBookkeepingAccountBalances(initialAccBals);
-    setBookkeepingTotalBalance(String(totalBalance));
+    setBookkeepingTotalBalance(String(totalBalance + totalDebts));
     setBookkeepingNote('');
     setShowBookkeepingModal(true);
   };
@@ -111,9 +117,67 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
         return acc + numericVal;
       }, 0);
       
-      setBookkeepingTotalBalance(String(total));
+      setBookkeepingTotalBalance(String(total + totalDebts));
       return updated;
     });
+  };
+
+  const handleStartEditBalance = (acc: Account) => {
+    setEditingAcc(acc);
+    setEditedBalance(formatNumber(acc.balance.toString()));
+  };
+
+  const handleEditBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAcc || !user) return;
+
+    const newBal = parseFloat(getCleanNumber(editedBalance));
+    if (isNaN(newBal) || newBal < 0) {
+      alert('Saldo tidak boleh negatif.');
+      return;
+    }
+
+    const diff = newBal - editingAcc.balance;
+    if (diff === 0) {
+      setEditingAcc(null);
+      return;
+    }
+
+    setLoadingEdit(true);
+    try {
+      await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...editingAcc, balance: newBal })
+      });
+
+      await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          accountId: editingAcc.id,
+          type: 'adjustment',
+          amount: Math.abs(diff),
+          fee: 0,
+          feeExternal: 0,
+          netAmount: diff,
+          note: `Koreksi Saldo (Penyesuaian Manual dari ${formatCurrency(editingAcc.balance)} ke ${formatCurrency(newBal)})`,
+          paymentStatus: 'success'
+        })
+      });
+
+      setEditingAcc(null);
+      if (onUpdateAccounts) {
+        onUpdateAccounts();
+      }
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      alert('Gagal memperbarui saldo.');
+    } finally {
+      setLoadingEdit(false);
+    }
   };
 
   const handleSaveBookkeeping = async (e: React.FormEvent) => {
@@ -389,17 +453,34 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
 
         {/* Account Quick Glance */}
         <div className="md:col-span-4 bg-white/50 backdrop-blur-sm rounded-[1.5rem] border border-slate-100 shadow-sm p-4 space-y-2">
-           <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">Ringkasan Akun</h3>
+           <div className="flex items-center justify-between px-1">
+              <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Ringkasan Akun</h3>
+              <button 
+                onClick={() => onNavigate('settings')} 
+                className="text-[9px] font-black text-blue-600 hover:underline uppercase"
+              >
+                Kelola
+              </button>
+           </div>
            <div className="space-y-1.5 overflow-y-auto max-h-[140px] scrollbar-hide px-0.5 pt-0.5">
               {accounts.map(acc => (
                 <div key={acc.id} className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-100 hover:border-indigo-200 transition-all shadow-sm">
-                   <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500">
+                   <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0">
                         {getAccountIcon(acc.type)}
                       </div>
-                      <span className="text-[9px] font-bold text-slate-600 truncate max-w-[80px]">{acc.name}</span>
+                      <span className="text-[9px] font-bold text-slate-600 truncate max-w-[80px]" title={acc.name}>{acc.name}</span>
                    </div>
-                   <span className="text-[10px] font-black text-slate-900 font-mono">{displayCurrency(acc.balance)}</span>
+                   <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] font-black text-slate-900 font-mono">{displayCurrency(acc.balance)}</span>
+                      <button 
+                        onClick={() => handleStartEditBalance(acc)} 
+                        className="p-1 rounded bg-slate-50 hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-all"
+                        title="Koreksi Saldo"
+                      >
+                        <Edit2 size={10} />
+                      </button>
+                   </div>
                 </div>
               ))}
            </div>
@@ -637,15 +718,30 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
                 </div>
 
                 {/* Calculated Total Balance Cards */}
-                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 flex items-center justify-between mt-3">
-                  <div>
-                    <h5 className="text-[10px] font-black text-blue-700 uppercase tracking-wider mb-1">Total Saldo Hasil Hitung</h5>
-                    <p className="text-[9px] text-slate-400 font-bold">Gabungan otomatis seluruh nominal.</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-sm font-black font-mono text-blue-700">
-                      Rp {formatCurrency(parseFloat(bookkeepingTotalBalance) || 0)}
+                <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 flex flex-col gap-2 mt-3 text-left">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                    <span>Kas & Rekening:</span>
+                    <span className="font-mono">
+                      Rp {formatCurrency((parseFloat(bookkeepingTotalBalance) || 0) - totalDebts)}
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-600">
+                    <span>Total Piutang Aktif:</span>
+                    <span className="font-mono">
+                      Rp {formatCurrency(totalDebts)}
+                    </span>
+                  </div>
+                  <div className="w-full h-px bg-slate-200/50 my-1"></div>
+                  <div className="flex items-center justify-between text-blue-700 font-black">
+                    <div>
+                      <h5 className="text-[10px] uppercase tracking-wider">Total Hasil Hitung</h5>
+                      <p className="text-[8px] text-slate-400 font-bold">Kas + Piutang</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-base font-black font-mono">
+                        Rp {formatCurrency(parseFloat(bookkeepingTotalBalance) || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -678,6 +774,40 @@ export default function Dashboard({ user, accounts, onNavigate }: DashboardProps
                     {bookkeepingSaving ? "Menyimpan..." : "Simpan Buku"}
                   </button>
                 </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Koreksi Saldo Modal */}
+      <AnimatePresence>
+        {editingAcc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+                <h3 className="text-xs font-black uppercase">Koreksi Saldo Rekening</h3>
+                <button onClick={() => setEditingAcc(null)} className="text-slate-500 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <form onSubmit={handleEditBalance} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 px-1">Saldo Riil Baru: {editingAcc.name}</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">Rp</span>
+                    <input 
+                      type="text" 
+                      autoFocus 
+                      value={editedBalance} 
+                      onChange={(e) => setEditedBalance(formatNumber(e.target.value))} 
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-xl font-black text-blue-600" 
+                    />
+                  </div>
+                </div>
+                <button type="submit" disabled={loadingEdit} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-blue-200">
+                  {loadingEdit ? 'Menyimpan...' : 'SIMPAN SALDO'}
+                </button>
               </form>
             </motion.div>
           </div>
